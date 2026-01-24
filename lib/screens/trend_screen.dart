@@ -67,11 +67,18 @@ class _TrendsScreenState extends State<TrendsScreen> {
             return Center(child: Text("Error: ${snapshot.error}"));
           }
 
-          final points = snapshot.data ?? [];
+          var points = snapshot.data ?? [];
+
+          // 2. FORCE SORT HERE (This guarantees order)
+          points.sort((a, b) {
+            if (a.ts == null) return -1;
+            if (b.ts == null) return 1;
+            return a.ts!.compareTo(b.ts!);
+          });
+
+          // 3. Now map the sorted data
           final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
-          final pm25Values = points.map((p) => p.pm25).toList();
-          
-          // Extract the DateTime list to pass to the chart
+          final pm25Values = points.map((p) => p.pm25?.toDouble()).toList();
           final dates = points.map((p) => p.ts).toList();
 
           return ListView(
