@@ -9,6 +9,9 @@ class LineChartCard extends StatelessWidget {
   final String unit;
   final bool useTimeXAxis;
 
+  // ✅ YOU FORGOT THIS
+  final int windowHours;
+
   const LineChartCard({
     super.key,
     required this.title,
@@ -16,16 +19,29 @@ class LineChartCard extends StatelessWidget {
     this.dates,
     this.unit = "",
     this.useTimeXAxis = true,
+    required this.windowHours,
   });
 
-  DateTime _floorToHour(DateTime d) =>
-      DateTime(d.year, d.month, d.day, d.hour);
+  DateTime _floorToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
 
   DateTime _ceilToHour(DateTime d) {
     final floored = _floorToHour(d);
     return d.isAtSameMomentAs(floored)
         ? floored
         : floored.add(const Duration(hours: 1));
+  }
+
+  // ✅ Make dropdown change the chart readability
+  double _bottomIntervalMsForWindow(int hours) {
+    if (hours <= 24) return const Duration(hours: 3).inMilliseconds.toDouble();   // 24h
+    if (hours <= 72) return const Duration(hours: 12).inMilliseconds.toDouble();  // 3d
+    return const Duration(hours: 24).inMilliseconds.toDouble();                   // 7d
+  }
+
+  String _bottomLabelForWindow(DateTime dt, int hours) {
+    if (hours <= 24) return DateFormat('ha').format(dt);            // 2PM
+    if (hours <= 72) return DateFormat('MMM d\nha').format(dt);     // Jan 24\n2PM
+    return DateFormat('MMM d').format(dt);                          // Jan 24
   }
 
   @override
@@ -42,17 +58,18 @@ class LineChartCard extends StatelessWidget {
         if (v == null || d == null) continue;
 
         spots.add(FlSpot(d.millisecondsSinceEpoch.toDouble(), v));
-        minY = minY < v ? minY : v;
-        maxY = maxY > v ? maxY : v;
+        if (v < minY) minY = v;
+        if (v > maxY) maxY = v;
       }
       spots.sort((a, b) => a.x.compareTo(b.x));
     } else {
       for (int i = 0; i < values.length; i++) {
         final v = values[i];
         if (v == null) continue;
+
         spots.add(FlSpot(i.toDouble(), v));
-        minY = minY < v ? minY : v;
-        maxY = maxY > v ? maxY : v;
+        if (v < minY) minY = v;
+        if (v > maxY) maxY = v;
       }
     }
 
@@ -75,7 +92,9 @@ class LineChartCard extends StatelessWidget {
 
       minX = _floorToHour(first).millisecondsSinceEpoch.toDouble();
       maxX = _ceilToHour(last).millisecondsSinceEpoch.toDouble();
-      bottomInterval = const Duration(hours: 1).inMilliseconds.toDouble();
+
+      // ✅ use dropdown
+      bottomInterval = _bottomIntervalMsForWindow(windowHours);
     } else {
       minX = 0;
       maxX = (values.length - 1).toDouble();
@@ -87,14 +106,16 @@ class LineChartCard extends StatelessWidget {
           ? DateTime.fromMillisecondsSinceEpoch(x.toInt())
           : dates?[x.toInt()];
       if (dt == null) return '';
-      return DateFormat('h:mm a').format(dt);
+      return _bottomLabelForWindow(dt, windowHours);
     }
 
     String formatTooltip(FlSpot spot) {
       final dt = DateTime.fromMillisecondsSinceEpoch(spot.x.toInt());
-      return "${DateFormat('h:mm a').format(dt)}\n"
+      return "${DateFormat('MMM d, h:mm a').format(dt)}\n"
           "${spot.y.toStringAsFixed(1)} $unit";
     }
+
+    final reservedBottom = windowHours <= 24 ? 30.0 : 46.0;
 
     return Card(
       elevation: 2,
@@ -137,15 +158,13 @@ class LineChartCard extends StatelessWidget {
                     rightTitles: const AxisTitles(
                       sideTitles: SideTitles(showTitles: false),
                     ),
-
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 40,
                         getTitlesWidget: (v, _) => Text(
                           v.toStringAsFixed(1),
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 10),
+                          style: const TextStyle(color: Colors.grey, fontSize: 10),
                         ),
                       ),
                     ),
@@ -153,10 +172,13 @@ class LineChartCard extends StatelessWidget {
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        reservedSize: 30,
+                        reservedSize: reservedBottom,
                         interval: bottomInterval,
                         getTitlesWidget: (value, meta) {
-                          // ✅ CRITICAL FIX: hide right-edge label
+                          // hide edge labels
+                          if ((value - minX).abs() < bottomInterval / 2) {
+                            return const SizedBox();
+                          }
                           if ((maxX - value).abs() < bottomInterval / 2) {
                             return const SizedBox();
                           }
@@ -168,6 +190,7 @@ class LineChartCard extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
                               label,
+                              textAlign: TextAlign.center,
                               style: const TextStyle(
                                 color: Colors.grey,
                                 fontSize: 10,
@@ -184,7 +207,7 @@ class LineChartCard extends StatelessWidget {
 
                   lineTouchData: LineTouchData(
                     touchTooltipData: LineTouchTooltipData(
-                      getTooltipItems: (spots) => spots
+                      getTooltipItems: (touchedSpots) => touchedSpots
                           .map((s) => LineTooltipItem(
                                 formatTooltip(s),
                                 const TextStyle(
@@ -206,8 +229,7 @@ class LineChartCard extends StatelessWidget {
                       dotData: const FlDotData(show: false),
                       belowBarData: BarAreaData(
                         show: true,
-                        color:
-                            Theme.of(context).primaryColor.withOpacity(0.1),
+                        color: Theme.of(context).primaryColor.withOpacity(0.1),
                       ),
                     ),
                   ],

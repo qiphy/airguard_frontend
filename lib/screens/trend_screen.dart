@@ -26,7 +26,6 @@ class _TrendsScreenState extends State<TrendsScreen> {
   final bool useRealTimeXAxis = true;
 
   /// Only used when useRealTimeXAxis == false
-  /// Floors labels to the hour so you never see :17 etc.
   final bool floorLabelsToHourWhenIndexBased = true;
 
   @override
@@ -41,8 +40,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
     });
   }
 
-DateTime _floorToHour(DateTime d) =>
-    DateTime(d.year, d.month, d.day, d.hour);
+  DateTime _floorToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
 
   Future<List<HistoryPoint>> _fetchAndSort() async {
     try {
@@ -58,13 +56,24 @@ DateTime _floorToHour(DateTime d) =>
         return a.ts!.compareTo(b.ts!);
       });
 
-      return rawPoints;
+      // ✅ ENFORCE WINDOW (past N hours) on the client
+      final now = DateTime.now();
+      final cutoff = now.subtract(Duration(hours: hours));
+
+      final filtered = rawPoints.where((p) {
+        final t = p.ts?.toLocal();
+        if (t == null) return false;
+        return t.isAfter(cutoff);
+      }).toList();
+
+      return filtered;
     } catch (e) {
       // ignore: avoid_print
       print("Error loading trends: $e");
       rethrow;
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -86,24 +95,30 @@ DateTime _floorToHour(DateTime d) =>
           }
 
           final points = snapshot.data ?? [];
+
           if (points.isEmpty) {
             return const Center(child: Text("No data yet. Check back later!"));
           }
+
+          // ✅ Safe debug (after empty check)
+          debugPrint(
+            "hours=$hours -> points=${points.length} "
+            "first=${points.first.ts} last=${points.last.ts}",
+          );
 
           // Values (already sorted)
           final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
           final pm25Values = points.map((p) => p.pm25?.toDouble()).toList();
 
-          // Dates: DO NOT mutate HistoryPoint.ts (it may be final)
+          // Dates: convert to local for display/charting
           final dates = points.map((p) {
-            if (p.ts == null) return null;
+            final ts = p.ts;
+            if (ts == null) return null;
 
-            final local = p.ts!.toLocal();
-
+            final local = ts.toLocal();
             if (!useRealTimeXAxis && floorLabelsToHourWhenIndexBased) {
               return _floorToHour(local);
             }
-
             return local;
           }).toList();
 
@@ -119,6 +134,7 @@ DateTime _floorToHour(DateTime d) =>
                 dates: dates,
                 unit: "AQI",
                 useTimeXAxis: useRealTimeXAxis,
+                windowHours: hours,
               ),
               const SizedBox(height: 12),
               Text(trendInsight(aqiValues, label: "AQI")),
@@ -130,6 +146,7 @@ DateTime _floorToHour(DateTime d) =>
                 dates: dates,
                 unit: "µg/m³",
                 useTimeXAxis: useRealTimeXAxis,
+                windowHours: hours, // ✅ REQUIRED
               ),
               const SizedBox(height: 12),
               Text(trendInsight(pm25Values, label: "PM2.5")),
