@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Ensure this is imported
 import '../services/api_service.dart';
 import '../models/history_point.dart';
 import '../widgets/line_chart_card.dart';
@@ -23,29 +24,38 @@ class _TrendsScreenState extends State<TrendsScreen> {
   @override
   void initState() {
     super.initState();
-    future = _load();
+    _load();
   }
 
-  Future<List<HistoryPoint>> _load() async {
-    final res = await api.fetchHistory(hours: hours);
-    final points = (res['points'] as List)
-        .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
-        .toList();
-
-    // CRITICAL: Sort by date so the graph draws left-to-right correctly
-    points.sort((a, b) {
-      if (a.ts == null) return -1;
-      if (b.ts == null) return 1;
-      return a.ts!.compareTo(b.ts!);
-    });
-
-    return points;
-  }
-
-  void _reload() {
+  void _load() {
     setState(() {
-      future = _load();
+      future = _fetchAndSort();
     });
+  }
+
+  // This function GUARANTEES sorting happens before the UI sees the data
+  Future<List<HistoryPoint>> _fetchAndSort() async {
+    try {
+      final res = await api.fetchHistory(hours: hours);
+      final rawPoints = (res['points'] as List)
+          .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
+          .toList();
+
+      // DEBUG PRINT: Check your debug console to see if this runs
+      print("Sort start: ${rawPoints.length} points");
+
+      // Sort by Date (Oldest -> Newest)
+      rawPoints.sort((a, b) {
+        if (a.ts == null) return -1;
+        if (b.ts == null) return 1;
+        return a.ts!.compareTo(b.ts!);
+      });
+
+      return rawPoints;
+    } catch (e) {
+      print("Error loading trends: $e");
+      rethrow;
+    }
   }
 
   @override
@@ -54,7 +64,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
       appBar: AppBar(
         title: const Text("Trends"),
         actions: [
-          IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: FutureBuilder<List<HistoryPoint>>(
@@ -67,16 +77,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
             return Center(child: Text("Error: ${snapshot.error}"));
           }
 
-          var points = snapshot.data ?? [];
+          final points = snapshot.data ?? [];
 
-          // 2. FORCE SORT HERE (This guarantees order)
-          points.sort((a, b) {
-            if (a.ts == null) return -1;
-            if (b.ts == null) return 1;
-            return a.ts!.compareTo(b.ts!);
-          });
+          if (points.isEmpty) {
+            return const Center(child: Text("No data yet. Check back later!"));
+          }
 
-          // 3. Now map the sorted data
+          // Data is already sorted by _fetchAndSort above
           final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
           final pm25Values = points.map((p) => p.pm25?.toDouble()).toList();
           final dates = points.map((p) => p.ts).toList();
@@ -90,7 +97,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
               LineChartCard(
                 title: "AQI Trend",
                 values: aqiValues,
-                dates: dates, // Passing the real dates now
+                dates: dates, 
                 unit: "AQI",
               ),
               const SizedBox(height: 12),
@@ -99,12 +106,12 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
               LineChartCard(
                 title: "PM2.5 Trend",
-                values: pm25Values.map((e) => e?.toDouble()).toList(),
-                dates: dates, // Passing the real dates now
+                values: pm25Values,
+                dates: dates, 
                 unit: "µg/m³",
               ),
               const SizedBox(height: 12),
-              Text(trendInsight(pm25Values.map((e) => e?.toDouble()).toList(), label: "PM2.5")),
+              Text(trendInsight(pm25Values, label: "PM2.5")),
 
               const SizedBox(height: 24),
               Text(
@@ -134,7 +141,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
             if (v == null) return;
             setState(() {
               hours = v;
-              future = _load();
+              _load(); // Reloads automatically when you change window
             });
           },
         ),
