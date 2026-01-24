@@ -1,0 +1,21 @@
+# Miscellaneous
+.DS_Store
+.dart_tool/
+.idea/
+.vscode/
+
+# Build artifacts (The heavy stuff)
+build/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Generated.xcconfig
+ios/Flutter/app.flx
+ios/Flutter/app.zip
+ios/Flutter/flutter_assets/
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# Plugins
+.flutter-plugins
+.flutter-plugins-dependencies
