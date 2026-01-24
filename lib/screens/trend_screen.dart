@@ -31,6 +31,14 @@ class _TrendsScreenState extends State<TrendsScreen> {
     final points = (res['points'] as List)
         .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
         .toList();
+
+    // CRITICAL: Sort by date so the graph draws left-to-right correctly
+    points.sort((a, b) {
+      if (a.ts == null) return -1;
+      if (b.ts == null) return 1;
+      return a.ts!.compareTo(b.ts!);
+    });
+
     return points;
   }
 
@@ -62,6 +70,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
           final points = snapshot.data ?? [];
           final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
           final pm25Values = points.map((p) => p.pm25).toList();
+          
+          // Extract the DateTime list to pass to the chart
+          final dates = points.map((p) => p.ts).toList();
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -70,8 +81,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
               const SizedBox(height: 12),
 
               LineChartCard(
-                title: "AQI Trend (last $hours hours)",
+                title: "AQI Trend",
                 values: aqiValues,
+                dates: dates, // Passing the real dates now
                 unit: "AQI",
               ),
               const SizedBox(height: 12),
@@ -79,16 +91,17 @@ class _TrendsScreenState extends State<TrendsScreen> {
               const SizedBox(height: 16),
 
               LineChartCard(
-                title: "PM2.5 Trend (last $hours hours)",
+                title: "PM2.5 Trend",
                 values: pm25Values.map((e) => e?.toDouble()).toList(),
+                dates: dates, // Passing the real dates now
                 unit: "µg/m³",
               ),
               const SizedBox(height: 12),
               Text(trendInsight(pm25Values.map((e) => e?.toDouble()).toList(), label: "PM2.5")),
-              const SizedBox(height: 24),
 
+              const SizedBox(height: 24),
               Text(
-                "Tip: if this is your first run, visit Dashboard a few times to collect readings, then come back here.",
+                "Tip: Keep collecting data to see the trend line grow.",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],

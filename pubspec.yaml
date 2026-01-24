@@ -6,6 +6,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 dependencies:
   http: ^1.2.2
   fl_chart: ^0.66.2
+  intl: ^0.20.2
 
 
 

@@ -99,10 +99,6 @@ body: ListView(
                     ? "Kuala Lumpur"
                     : _locationCtrl.text.trim();
 
-                if (seq.length < 50) {
-                  throw Exception("Protein sequence too short (need >= 50 amino acids).");
-                }
-
                 final res = await api.fetchVirusPrediction(
                   proteinSequence: seq,
                   location: loc,
