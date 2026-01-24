@@ -41,7 +41,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
     });
   }
 
-  DateTime _floorToHour(DateTime dt) => DateTime(dt.year, dt.month, dt.day, dt.hour);
+DateTime _floorToHour(DateTime d) =>
+    DateTime(d.year, d.month, d.day, d.hour);
 
   Future<List<HistoryPoint>> _fetchAndSort() async {
     try {
@@ -50,7 +51,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
           .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // Sort oldest -> newest (nulls first)
+      // Sort by timestamp (oldest → newest)
       rawPoints.sort((a, b) {
         if (a.ts == null) return -1;
         if (b.ts == null) return 1;
@@ -95,14 +96,14 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
           // Dates: DO NOT mutate HistoryPoint.ts (it may be final)
           final dates = points.map((p) {
-            final ts = p.ts;
-            if (ts == null) return null;
+            if (p.ts == null) return null;
 
-            final local = ts.toLocal();
+            final local = p.ts!.toLocal();
 
             if (!useRealTimeXAxis && floorLabelsToHourWhenIndexBased) {
               return _floorToHour(local);
             }
+
             return local;
           }).toList();
 
