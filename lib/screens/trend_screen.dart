@@ -1,5 +1,5 @@
+// lib/screens/trends_screen.dart
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Ensure this is imported
 import '../services/api_service.dart';
 import '../models/history_point.dart';
 import '../widgets/line_chart_card.dart';
@@ -21,6 +21,14 @@ class _TrendsScreenState extends State<TrendsScreen> {
   int hours = 24;
   late Future<List<HistoryPoint>> future;
 
+  /// true = real-time X axis (recommended)
+  /// false = index-based X axis (even spacing)
+  final bool useRealTimeXAxis = true;
+
+  /// Only used when useRealTimeXAxis == false
+  /// Floors labels to the hour so you never see :17 etc.
+  final bool floorLabelsToHourWhenIndexBased = true;
+
   @override
   void initState() {
     super.initState();
@@ -33,7 +41,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
     });
   }
 
-  // This function GUARANTEES sorting happens before the UI sees the data
+  DateTime _floorToHour(DateTime dt) => DateTime(dt.year, dt.month, dt.day, dt.hour);
+
   Future<List<HistoryPoint>> _fetchAndSort() async {
     try {
       final res = await api.fetchHistory(hours: hours);
@@ -41,10 +50,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
           .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // DEBUG PRINT: Check your debug console to see if this runs
-      print("Sort start: ${rawPoints.length} points");
-
-      // Sort by Date (Oldest -> Newest)
+      // Sort oldest -> newest (nulls first)
       rawPoints.sort((a, b) {
         if (a.ts == null) return -1;
         if (b.ts == null) return 1;
@@ -53,6 +59,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
       return rawPoints;
     } catch (e) {
+      // ignore: avoid_print
       print("Error loading trends: $e");
       rethrow;
     }
@@ -78,15 +85,26 @@ class _TrendsScreenState extends State<TrendsScreen> {
           }
 
           final points = snapshot.data ?? [];
-
           if (points.isEmpty) {
             return const Center(child: Text("No data yet. Check back later!"));
           }
 
-          // Data is already sorted by _fetchAndSort above
+          // Values (already sorted)
           final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
           final pm25Values = points.map((p) => p.pm25?.toDouble()).toList();
-          final dates = points.map((p) => p.ts).toList();
+
+          // Dates: DO NOT mutate HistoryPoint.ts (it may be final)
+          final dates = points.map((p) {
+            final ts = p.ts;
+            if (ts == null) return null;
+
+            final local = ts.toLocal();
+
+            if (!useRealTimeXAxis && floorLabelsToHourWhenIndexBased) {
+              return _floorToHour(local);
+            }
+            return local;
+          }).toList();
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -97,8 +115,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
               LineChartCard(
                 title: "AQI Trend",
                 values: aqiValues,
-                dates: dates, 
+                dates: dates,
                 unit: "AQI",
+                useTimeXAxis: useRealTimeXAxis,
               ),
               const SizedBox(height: 12),
               Text(trendInsight(aqiValues, label: "AQI")),
@@ -107,8 +126,9 @@ class _TrendsScreenState extends State<TrendsScreen> {
               LineChartCard(
                 title: "PM2.5 Trend",
                 values: pm25Values,
-                dates: dates, 
+                dates: dates,
                 unit: "µg/m³",
+                useTimeXAxis: useRealTimeXAxis,
               ),
               const SizedBox(height: 12),
               Text(trendInsight(pm25Values, label: "PM2.5")),
@@ -141,7 +161,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
             if (v == null) return;
             setState(() {
               hours = v;
-              _load(); // Reloads automatically when you change window
+              _load();
             });
           },
         ),

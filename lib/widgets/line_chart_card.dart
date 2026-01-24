@@ -1,3 +1,4 @@
+// lib/widgets/line_chart_card.dart
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -8,32 +9,55 @@ class LineChartCard extends StatelessWidget {
   final List<DateTime?>? dates;
   final String unit;
 
+  /// true = real time X axis (millisecondsSinceEpoch)
+  /// false = index-based X axis (0..N-1)
+  final bool useTimeXAxis;
+
   const LineChartCard({
     super.key,
     required this.title,
     required this.values,
     this.dates,
     this.unit = "",
+    this.useTimeXAxis = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 1. Prepare the data spots
-    // We filter out null values but keep the X-index consistent
+    // Build spots + Y bounds
     final List<FlSpot> spots = [];
     double minY = double.infinity;
     double maxY = double.negativeInfinity;
 
-    for (int i = 0; i < values.length; i++) {
-      final v = values[i];
-      if (v != null) {
+    if (useTimeXAxis) {
+      // Time-based: needs dates
+      for (int i = 0; i < values.length; i++) {
+        final v = values[i];
+        final d = (dates != null && i < dates!.length) ? dates![i] : null;
+        if (v == null || d == null) continue;
+
+        final x = d.millisecondsSinceEpoch.toDouble();
+        spots.add(FlSpot(x, v));
+
+        if (v < minY) minY = v;
+        if (v > maxY) maxY = v;
+      }
+
+      // Ensure strictly increasing X
+      spots.sort((a, b) => a.x.compareTo(b.x));
+    } else {
+      // Index-based
+      for (int i = 0; i < values.length; i++) {
+        final v = values[i];
+        if (v == null) continue;
+
         spots.add(FlSpot(i.toDouble(), v));
+
         if (v < minY) minY = v;
         if (v > maxY) maxY = v;
       }
     }
 
-    // 2. Handle empty data case
     if (spots.isEmpty) {
       return Card(
         child: Padding(
@@ -46,12 +70,55 @@ class LineChartCard extends StatelessWidget {
       );
     }
 
-    // 3. Add some padding to the Y-axis so the line isn't stuck to the edge
-    final double yRange = maxY - minY;
-    // Avoid division by zero if all values are the same
-    final double buffer = yRange == 0 ? 1.0 : yRange * 0.1; 
-    minY -= buffer;
-    maxY += buffer;
+    // Y padding
+    final yRange = (maxY - minY).abs();
+    final buffer = yRange == 0 ? 1.0 : yRange * 0.1;
+    final paddedMinY = minY - buffer;
+    final paddedMaxY = maxY + buffer;
+
+    // X range from data
+    final minX = spots.first.x;
+    final maxX = spots.last.x;
+
+    // Bottom label interval (~4 labels)
+    final double bottomInterval;
+    if (useTimeXAxis) {
+      final span = maxX - minX;
+      bottomInterval = span <= 0 ? 1 : span / 3;
+    } else {
+      final n = values.length;
+      final every = (n / 4).floor();
+      bottomInterval = (every <= 0 ? 1 : every).toDouble();
+    }
+
+    String formatBottom(double x) {
+      if (useTimeXAxis) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(x.toInt());
+        return DateFormat('h:mm a').format(dt);
+      } else {
+        final idx = x.toInt();
+        if (dates == null || idx < 0 || idx >= dates!.length) return "";
+        final d = dates![idx];
+        if (d == null) return "";
+        return DateFormat('h:mm a').format(d);
+      }
+    }
+
+    String formatTooltip(FlSpot spot) {
+      if (useTimeXAxis) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(spot.x.toInt());
+        final t = DateFormat('h:mm a').format(dt);
+        return "$t\n${spot.y.toStringAsFixed(1)} $unit";
+      } else {
+        final idx = spot.x.toInt();
+        String t = "";
+        if (dates != null && idx >= 0 && idx < dates!.length) {
+          final d = dates![idx];
+          if (d != null) t = "${DateFormat('h:mm a').format(d)}\n";
+        }
+        return "$t${spot.y.toStringAsFixed(1)} $unit";
+      }
+    }
 
     return Card(
       elevation: 2,
@@ -61,7 +128,6 @@ class LineChartCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title Header
             Text(
               "$title ($unit)",
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -69,43 +135,40 @@ class LineChartCard extends StatelessWidget {
                   ),
             ),
             const SizedBox(height: 24),
-
-            // The Chart
             AspectRatio(
               aspectRatio: 1.5,
               child: LineChart(
                 LineChartData(
-                  minX: 0,
-                  maxX: (values.length - 1).toDouble(),
-                  minY: minY,
-                  maxY: maxY,
-                  
-                  // Grid Lines
+                  minX: minX,
+                  maxX: maxX,
+                  minY: paddedMinY,
+                  maxY: paddedMaxY,
+
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
                     horizontalInterval: (yRange == 0 ? 1 : yRange) / 4,
-                    getDrawingHorizontalLine: (value) {
-                      return FlLine(
-                        color: Colors.grey.withOpacity(0.2),
-                        strokeWidth: 1,
-                      );
-                    },
+                    getDrawingHorizontalLine: (value) => FlLine(
+                      color: Colors.grey.withOpacity(0.2),
+                      strokeWidth: 1,
+                    ),
                   ),
 
-                  // Axis Titles (Labels)
                   titlesData: FlTitlesData(
                     show: true,
                     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    
-                    // LEFT AXIS (Numbers)
+
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 40,
                         getTitlesWidget: (value, meta) {
-                          if (value == minY || value == maxY) return const SizedBox();
+                          // Skip extreme labels
+                          if ((value - paddedMinY).abs() < 1e-9 ||
+                              (value - paddedMaxY).abs() < 1e-9) {
+                            return const SizedBox();
+                          }
                           return Text(
                             value.toStringAsFixed(1),
                             style: const TextStyle(color: Colors.grey, fontSize: 10),
@@ -115,31 +178,19 @@ class LineChartCard extends StatelessWidget {
                       ),
                     ),
 
-                    // BOTTOM AXIS (Time)
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
-                        // Show roughly 4 labels across the width
-                        interval: (values.length / 4).floorToDouble(), 
+                        interval: bottomInterval,
                         getTitlesWidget: (value, meta) {
-                          final index = value.toInt();
-                          
-                          // Safety check for index out of bounds
-                          if (dates == null || index < 0 || index >= dates!.length) {
-                            return const SizedBox();
-                          }
+                          final label = formatBottom(value);
+                          if (label.isEmpty) return const SizedBox();
 
-                          final date = dates![index];
-                          if (date == null) return const SizedBox();
-
-                          // Format the time (e.g., 10:30 AM)
-                          final formatted = DateFormat('h:mm a').format(date);
-                          
                           return Padding(
                             padding: const EdgeInsets.only(top: 8.0),
                             child: Text(
-                              formatted,
+                              label,
                               style: const TextStyle(
                                 color: Colors.grey,
                                 fontSize: 10,
@@ -152,24 +203,14 @@ class LineChartCard extends StatelessWidget {
                     ),
                   ),
 
-                  // Border
                   borderData: FlBorderData(show: false),
 
-                  // Tooltip (Touch behavior)
                   lineTouchData: LineTouchData(
                     touchTooltipData: LineTouchTooltipData(
                       getTooltipItems: (touchedSpots) {
-                        return touchedSpots.map((spot) {
-                          final index = spot.x.toInt();
-                          String timeLabel = "";
-                          if (dates != null && index >= 0 && index < dates!.length) {
-                            final d = dates![index];
-                            if (d != null) {
-                              timeLabel = DateFormat('h:mm a').format(d) + "\n";
-                            }
-                          }
+                        return touchedSpots.map((barSpot) {
                           return LineTooltipItem(
-                            "$timeLabel${spot.y.toStringAsFixed(1)} $unit",
+                            formatTooltip(barSpot),
                             const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                           );
                         }).toList();
@@ -177,7 +218,6 @@ class LineChartCard extends StatelessWidget {
                     ),
                   ),
 
-                  // The Actual Line
                   lineBarsData: [
                     LineChartBarData(
                       spots: spots,
@@ -185,7 +225,7 @@ class LineChartCard extends StatelessWidget {
                       color: Theme.of(context).primaryColor,
                       barWidth: 3,
                       isStrokeCapRound: true,
-                      dotData: const FlDotData(show: false), // Hide dots for cleaner look
+                      dotData: const FlDotData(show: false),
                       belowBarData: BarAreaData(
                         show: true,
                         color: Theme.of(context).primaryColor.withOpacity(0.1),
