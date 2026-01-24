@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class AQICard extends StatelessWidget {
   final String location;
-  final int aqi;
+  final num aqi;
   final String status;
   final DateTime updatedAt;
 

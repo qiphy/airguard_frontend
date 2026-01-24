@@ -80,11 +80,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
               LineChartCard(
                 title: "PM2.5 Trend (last $hours hours)",
-                values: pm25Values,
+                values: pm25Values.map((e) => e?.toDouble()).toList(),
                 unit: "µg/m³",
               ),
               const SizedBox(height: 12),
-              Text(trendInsight(pm25Values, label: "PM2.5")),
+              Text(trendInsight(pm25Values.map((e) => e?.toDouble()).toList(), label: "PM2.5")),
               const SizedBox(height: 24),
 
               Text(

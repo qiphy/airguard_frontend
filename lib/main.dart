@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_application_1/app_shell.dart';
 
 import 'theme.dart';
-import 'screens/dashboard_screen.dart';
 
 void main() {
   runApp(const MyApp());

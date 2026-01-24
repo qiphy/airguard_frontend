@@ -68,11 +68,10 @@ body: ListView(
     TextField(
       controller: _proteinCtrl,
       maxLines: 10,
-      decoration: const InputDecoration(
-        labelText: "Protein sequence (FASTA allowed)",
-        hintText: "Paste amino-acid sequence here (>= 50 aa)",
-        border: OutlineInputBorder(),
-      ),
+      decoration: InputDecoration(
+          labelText: "Enter Protein Sequence or Virus Name",
+          hintText: "e.g., Covid, Flu, Ebola...",
+        ),
     ),
     const SizedBox(height: 12),
     TextField(

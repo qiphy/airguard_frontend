@@ -81,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  String _aqiStatus(int aqi) {
+  String _aqiStatus(num aqi) {
     if (aqi <= 50) return 'Good';
     if (aqi <= 100) return 'Moderate';
     if (aqi <= 150) return 'Unhealthy';

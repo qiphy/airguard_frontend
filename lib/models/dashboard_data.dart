@@ -1,7 +1,7 @@
 class DashboardData {
   final String location;
-  final int aqi;
-  final double pm25;
+  final num aqi;
+  final num pm25;
   final String risk;
   final double confidence;
 

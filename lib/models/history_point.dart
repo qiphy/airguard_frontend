@@ -1,7 +1,7 @@
 class HistoryPoint {
   final DateTime ts;
-  final int? aqi;
-  final double? pm25;
+  final num? aqi;
+  final num? pm25;
 
   HistoryPoint({
     required this.ts,
