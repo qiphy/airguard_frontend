@@ -66,7 +66,7 @@ class AqiGaugeCard extends StatelessWidget {
                       axes: <RadialAxis>[
                         RadialAxis(
                           minimum: 0,
-                          maximum: 500,
+                          maximum: 501,
                           labelOffset: 18,
                           interval: 50,
                           showTicks: false,
