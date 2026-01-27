@@ -1,3 +1,4 @@
+// lib/widgets/line_chart_card.dart
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -9,9 +10,6 @@ class LineChartCard extends StatelessWidget {
   final String unit;
   final bool useTimeXAxis;
 
-  // ✅ YOU FORGOT THIS
-  final int windowHours;
-
   const LineChartCard({
     super.key,
     required this.title,
@@ -19,7 +17,6 @@ class LineChartCard extends StatelessWidget {
     this.dates,
     this.unit = "",
     this.useTimeXAxis = true,
-    required this.windowHours,
   });
 
   DateTime _floorToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
@@ -31,17 +28,19 @@ class LineChartCard extends StatelessWidget {
         : floored.add(const Duration(hours: 1));
   }
 
-  // ✅ Make dropdown change the chart readability
-  double _bottomIntervalMsForWindow(int hours) {
-    if (hours <= 24) return const Duration(hours: 3).inMilliseconds.toDouble();   // 24h
-    if (hours <= 72) return const Duration(hours: 12).inMilliseconds.toDouble();  // 3d
-    return const Duration(hours: 24).inMilliseconds.toDouble();                   // 7d
-  }
+  double _chartHeight(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final isLandscape = media.orientation == Orientation.landscape;
 
-  String _bottomLabelForWindow(DateTime dt, int hours) {
-    if (hours <= 24) return DateFormat('ha').format(dt);            // 2PM
-    if (hours <= 72) return DateFormat('MMM d\nha').format(dt);     // Jan 24\n2PM
-    return DateFormat('MMM d').format(dt);                          // Jan 24
+    // Available height can be short in landscape; clamp for usability.
+    // Tune these numbers if you want tighter/looser cards.
+    final h = media.size.height;
+
+    // In landscape, keep charts shorter so multiple cards fit without overflow.
+    final target = isLandscape ? h * 0.32 : h * 0.28;
+
+    // Clamp: never too tiny, never absurdly tall.
+    return target.clamp(160.0, isLandscape ? 220.0 : 320.0);
   }
 
   @override
@@ -50,7 +49,7 @@ class LineChartCard extends StatelessWidget {
     double minY = double.infinity;
     double maxY = double.negativeInfinity;
 
-    // --- Build data points ---
+    // ----- Build spots -----
     if (useTimeXAxis) {
       for (int i = 0; i < values.length; i++) {
         final v = values[i];
@@ -74,14 +73,27 @@ class LineChartCard extends StatelessWidget {
     }
 
     if (spots.isEmpty) {
-      return const SizedBox(height: 200);
+      return Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            height: 200,
+            child: Center(child: Text("No data available for $title")),
+          ),
+        ),
+      );
     }
 
-    // --- Y axis padding ---
+    // ----- Y axis padding -----
     final yRange = (maxY - minY).abs();
     final yBuffer = yRange == 0 ? 1.0 : yRange * 0.1;
 
-    // --- X axis bounds + interval ---
+    final paddedMinY = minY - yBuffer;
+    final paddedMaxY = maxY + yBuffer;
+
+    // ----- X axis bounds + interval -----
     late final double minX;
     late final double maxX;
     late final double bottomInterval;
@@ -90,11 +102,12 @@ class LineChartCard extends StatelessWidget {
       final first = DateTime.fromMillisecondsSinceEpoch(spots.first.x.toInt());
       final last = DateTime.fromMillisecondsSinceEpoch(spots.last.x.toInt());
 
+      // Align bounds to whole hours (keeps axis clean)
       minX = _floorToHour(first).millisecondsSinceEpoch.toDouble();
       maxX = _ceilToHour(last).millisecondsSinceEpoch.toDouble();
 
-      // ✅ use dropdown
-      bottomInterval = _bottomIntervalMsForWindow(windowHours);
+      // ✅ Labels every 6 hours (data is hourly)
+      bottomInterval = const Duration(hours: 6).inMilliseconds.toDouble();
     } else {
       minX = 0;
       maxX = (values.length - 1).toDouble();
@@ -102,20 +115,35 @@ class LineChartCard extends StatelessWidget {
     }
 
     String formatBottom(double x) {
-      final dt = useTimeXAxis
-          ? DateTime.fromMillisecondsSinceEpoch(x.toInt())
-          : dates?[x.toInt()];
-      if (dt == null) return '';
-      return _bottomLabelForWindow(dt, windowHours);
+      if (useTimeXAxis) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(x.toInt());
+        // ✅ Date + hour, 2 lines (works across 24h/3d/7d)
+        return DateFormat('MMM d\nha').format(dt); // e.g. "Jan 25\n6AM"
+      } else {
+        final idx = x.toInt();
+        if (dates == null || idx < 0 || idx >= dates!.length) return "";
+        final d = dates![idx];
+        if (d == null) return "";
+        return DateFormat('MMM d\nha').format(d);
+      }
     }
 
     String formatTooltip(FlSpot spot) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(spot.x.toInt());
-      return "${DateFormat('MMM d, h:mm a').format(dt)}\n"
-          "${spot.y.toStringAsFixed(1)} $unit";
+      if (useTimeXAxis) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(spot.x.toInt());
+        return "${DateFormat('MMM d, h:mm a').format(dt)}\n"
+            "${spot.y.toStringAsFixed(1)} $unit";
+      } else {
+        final idx = spot.x.toInt();
+        DateTime? dt;
+        if (dates != null && idx >= 0 && idx < dates!.length) dt = dates![idx];
+        final time =
+            dt == null ? "" : "${DateFormat('MMM d, h:mm a').format(dt)}\n";
+        return "$time${spot.y.toStringAsFixed(1)} $unit";
+      }
     }
 
-    final reservedBottom = windowHours <= 24 ? 30.0 : 46.0;
+    final chartHeight = _chartHeight(context);
 
     return Card(
       elevation: 2,
@@ -126,21 +154,23 @@ class LineChartCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "$title ($unit)",
+              unit.isEmpty ? title : "$title ($unit)",
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
                   ?.copyWith(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 24),
-            AspectRatio(
-              aspectRatio: 1.5,
+            const SizedBox(height: 16),
+
+            // ✅ Responsive height instead of AspectRatio (prevents landscape overflow)
+            SizedBox(
+              height: chartHeight,
               child: LineChart(
                 LineChartData(
                   minX: minX,
                   maxX: maxX,
-                  minY: minY - yBuffer,
-                  maxY: maxY + yBuffer,
+                  minY: paddedMinY,
+                  maxY: paddedMaxY,
 
                   gridData: FlGridData(
                     show: true,
@@ -158,13 +188,17 @@ class LineChartCard extends StatelessWidget {
                     rightTitles: const AxisTitles(
                       sideTitles: SideTitles(showTitles: false),
                     ),
+
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 40,
                         getTitlesWidget: (v, _) => Text(
                           v.toStringAsFixed(1),
-                          style: const TextStyle(color: Colors.grey, fontSize: 10),
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 10,
+                          ),
                         ),
                       ),
                     ),
@@ -172,10 +206,10 @@ class LineChartCard extends StatelessWidget {
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        reservedSize: reservedBottom,
+                        reservedSize: 46, // space for 2-line labels
                         interval: bottomInterval,
                         getTitlesWidget: (value, meta) {
-                          // hide edge labels
+                          // Hide edge labels (prevents clipped/duplicated right-most)
                           if ((value - minX).abs() < bottomInterval / 2) {
                             return const SizedBox();
                           }
@@ -208,13 +242,15 @@ class LineChartCard extends StatelessWidget {
                   lineTouchData: LineTouchData(
                     touchTooltipData: LineTouchTooltipData(
                       getTooltipItems: (touchedSpots) => touchedSpots
-                          .map((s) => LineTooltipItem(
-                                formatTooltip(s),
-                                const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ))
+                          .map(
+                            (s) => LineTooltipItem(
+                              formatTooltip(s),
+                              const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -222,7 +258,7 @@ class LineChartCard extends StatelessWidget {
                   lineBarsData: [
                     LineChartBarData(
                       spots: spots,
-                      isCurved: true,
+                      isCurved: false,
                       color: Theme.of(context).primaryColor,
                       barWidth: 3,
                       isStrokeCapRound: true,

@@ -74,6 +74,15 @@ class _TrendsScreenState extends State<TrendsScreen> {
     }
   }
 
+  bool _useGrid(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final isLandscape = media.orientation == Orientation.landscape;
+
+    // On web/desktop, you can also trigger grid even in portrait if wide enough.
+    final isWide = media.size.width >= 900;
+
+    return isLandscape || isWide;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,42 +131,79 @@ class _TrendsScreenState extends State<TrendsScreen> {
             return local;
           }).toList();
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _hoursPicker(),
-              const SizedBox(height: 12),
+          final gridMode = _useGrid(context);
 
-              LineChartCard(
-                title: "AQI Trend",
-                values: aqiValues,
-                dates: dates,
-                unit: "AQI",
-                useTimeXAxis: useRealTimeXAxis,
-                windowHours: hours,
-              ),
-              const SizedBox(height: 12),
-              Text(trendInsight(aqiValues, label: "AQI")),
-              const SizedBox(height: 16),
-
-              LineChartCard(
-                title: "PM2.5 Trend",
-                values: pm25Values,
-                dates: dates,
-                unit: "µg/m³",
-                useTimeXAxis: useRealTimeXAxis,
-                windowHours: hours, // ✅ REQUIRED
-              ),
-              const SizedBox(height: 12),
-              Text(trendInsight(pm25Values, label: "PM2.5")),
-
-              const SizedBox(height: 24),
-              Text(
-                "Tip: Keep collecting data to see the trend line grow.",
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+          // --- Chart+insight blocks ---
+          final aqiBlock = _TrendBlock(
+            chart: LineChartCard(
+              title: "AQI Trend",
+              values: aqiValues,
+              dates: dates,
+              unit: "AQI",
+              useTimeXAxis: useRealTimeXAxis,
+            ),
+            insight: trendInsight(aqiValues, label: "AQI"),
           );
+
+          final pm25Block = _TrendBlock(
+            chart: LineChartCard(
+              title: "PM2.5 Trend",
+              values: pm25Values,
+              dates: dates,
+              unit: "µg/m³",
+              useTimeXAxis: useRealTimeXAxis,
+            ),
+            insight: trendInsight(pm25Values, label: "PM2.5"),
+          );
+
+          if (!gridMode) {
+            // ===== Portrait / narrow: keep simple ListView =====
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _hoursPicker(),
+                const SizedBox(height: 12),
+
+                aqiBlock,
+                const SizedBox(height: 16),
+
+                pm25Block,
+                const SizedBox(height: 24),
+
+                Text(
+                  "Tip: Keep collecting data to see the trend line grow.",
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            );
+          }
+
+          // ===== Landscape / wide: charts in 2-column grid =====
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                // top controls
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _hoursPicker(),
+                ),
+                const SizedBox(height: 12),
+
+                // grid area
+                Expanded(
+                  child: GridView.count(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    // Wider-than-tall tiles: fits short landscape heights better
+                    childAspectRatio: 1.35,
+                    children: const [],
+                  ),
+                ),
+              ],
+            ),
+          )._withGridChildren([aqiBlock, pm25Block]);
         },
       ),
     );
@@ -165,6 +211,7 @@ class _TrendsScreenState extends State<TrendsScreen> {
 
   Widget _hoursPicker() {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         const Text("Window: "),
         const SizedBox(width: 8),
@@ -184,6 +231,69 @@ class _TrendsScreenState extends State<TrendsScreen> {
           },
         ),
       ],
+    );
+  }
+}
+
+/// A chart card + its insight text, kept together as a single block.
+class _TrendBlock extends StatelessWidget {
+  final Widget chart;
+  final String insight;
+
+  const _TrendBlock({
+    required this.chart,
+    required this.insight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        chart,
+        const SizedBox(height: 10),
+        Text(insight),
+      ],
+    );
+  }
+}
+
+/// Tiny helper extension so we can keep the GridView code clean.
+extension _GridChildrenHack on Widget {
+  Widget _withGridChildren(List<Widget> children) {
+    // This extension wraps the widget tree and swaps the placeholder GridView
+    // with the real one without duplicating the surrounding layout.
+    if (this is! Padding) return this;
+    final p = this as Padding;
+
+    return Padding(
+      padding: p.padding,
+      child: Builder(
+        builder: (context) {
+          // Rebuild the structure with children injected
+          final col = (p.child as Column);
+          final top = col.children[0];
+          final gap = col.children[1];
+          final expanded = col.children[2] as Expanded;
+          final grid = expanded.child as GridView;
+
+          return Column(
+            children: [
+              top,
+              gap,
+              Expanded(
+                child: GridView.count(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 1.35,
+                  children: children,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
