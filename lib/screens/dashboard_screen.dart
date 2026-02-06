@@ -50,10 +50,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final queryCity = city ?? _detectedLocation;
 
-      // CRITICAL FIX: Pass the city to the API
-      // Ensure your ApiService.fetchLatest accepts a named parameter `city`
+      // FIXED: Pass the city to BOTH endpoints. 
+      // Previously, 'fetchEnvPrediction' was missing the city, causing a data mismatch.
       final latest = await api.fetchLatest(city: queryCity);
-      final predict = await api.fetchEnvPrediction(); // Pass city here too if your API supports it
+      final predict = await api.fetchEnvPrediction(city: queryCity); 
 
       if (mounted) {
         setState(() {

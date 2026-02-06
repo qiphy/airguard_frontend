@@ -3,6 +3,11 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   final String baseUrl;
+  
+  // 1. TIMEOUT FIX: 
+  // Render free servers take ~60s to wake up. Default Flutter timeout is too short.
+  // We set this to 90 seconds to prevent "ClientException: Failed to fetch".
+  static const Duration _timeout = Duration(seconds: 90);
 
   ApiService(this.baseUrl);
 
@@ -15,7 +20,7 @@ class ApiService {
       Uri.parse('$baseUrl/predict_env'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(bodyData),
-    );
+    ).timeout(_timeout); // <--- Applied Timeout
     
     if (res.statusCode != 200) {
       throw Exception('Failed to fetch env prediction: ${res.statusCode} ${res.body}');
@@ -23,7 +28,7 @@ class ApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  // ✅ Virus + environment combined prediction (Kept as is)
+  // ✅ Virus + environment combined prediction
   Future<Map<String, dynamic>> fetchVirusPrediction({
     required String proteinSequence,
     String location = "Kuala Lumpur",
@@ -35,7 +40,8 @@ class ApiService {
         "protein_sequence": proteinSequence,
         "location": location,
       }),
-    );
+    ).timeout(_timeout); // <--- Applied Timeout
+
     if (res.statusCode != 200) {
       throw Exception('Failed to fetch virus prediction: ${res.statusCode} ${res.body}');
     }
@@ -50,7 +56,7 @@ class ApiService {
       queryParameters: city != null ? {'location': city} : null,
     );
 
-    final res = await http.get(uri);
+    final res = await http.get(uri).timeout(_timeout); // <--- Applied Timeout
     
     if (res.statusCode != 200) {
       throw Exception('Failed to fetch latest: ${res.statusCode} ${res.body}');
@@ -58,8 +64,17 @@ class ApiService {
     return jsonDecode(res.body);
   }
 
-  Future<Map<String, dynamic>> fetchHistory({int hours = 24}) async {
-    final res = await http.get(Uri.parse('$baseUrl/history?hours=$hours'));
+  // ✅ UPDATED: Added optional city parameter to match backend capabilities
+  Future<Map<String, dynamic>> fetchHistory({int hours = 24, String? city}) async {
+    final queryParams = {'hours': hours.toString()};
+    if (city != null) {
+      queryParams['location'] = city;
+    }
+
+    final uri = Uri.parse('$baseUrl/history').replace(queryParameters: queryParams);
+    
+    final res = await http.get(uri).timeout(_timeout); // <--- Applied Timeout
+
     if (res.statusCode != 200) {
       throw Exception('Failed to fetch history: ${res.statusCode} ${res.body}');
     }
