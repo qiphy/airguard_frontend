@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart'; // Import
+import '../widgets/top_viruses_card.dart';
 
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({super.key});
@@ -11,8 +13,8 @@ class InsightsScreen extends StatefulWidget {
 
 class _InsightsScreenState extends State<InsightsScreen> {
   final TextEditingController _proteinCtrl = TextEditingController();
-  final TextEditingController _locationCtrl =
-      TextEditingController(text: "Kuala Lumpur");
+  final TextEditingController _locationCtrl = TextEditingController();
+  final _locationService = LocationService();
 
   Map<String, dynamic>? _result;
   String? _error;
@@ -23,24 +25,10 @@ class _InsightsScreenState extends State<InsightsScreen> {
     defaultValue: 'https://airguardai.onrender.com',
   ));
 
-  // Optional: if you have a known set of virus names, put them here.
-  // You can expand this list anytime.
   final List<String> _knownViruses = const [
-    "SARS-CoV-2",
-    "COVID",
-    "Influenza A",
-    "Influenza B",
-    "Flu",
-    "RSV",
-    "Adenovirus",
-    "Rhinovirus",
-    "Norovirus",
-    "Ebola",
-    "Dengue",
-    "Zika",
-    "MERS",
-    "H1N1",
-    "H5N1",
+    "SARS-CoV-2", "COVID", "Influenza A", "Influenza B", "Flu", "RSV",
+    "Adenovirus", "Rhinovirus", "Norovirus", "Ebola", "Dengue", "Zika",
+    "MERS", "H1N1", "H5N1",
   ];
 
   Timer? _debounce;
@@ -51,24 +39,19 @@ class _InsightsScreenState extends State<InsightsScreen> {
   String sanitizeProteinInput(String raw) {
     final lines = raw.split(RegExp(r'\r?\n'));
     final sb = StringBuffer();
-
     for (final line in lines) {
       final t = line.trim();
-      if (t.isEmpty) continue;
-      if (t.startsWith('>')) continue; // FASTA header
+      if (t.isEmpty || t.startsWith('>')) continue; 
       sb.write(t);
     }
-
-    // Keep letters only (remove digits, spaces, *, -, etc.)
-    final cleaned =
-        sb.toString().replaceAll(RegExp(r'[^A-Za-z]'), '').toUpperCase();
-    return cleaned;
+    return sb.toString().replaceAll(RegExp(r'[^A-Za-z]'), '').toUpperCase();
   }
 
   @override
   void initState() {
     super.initState();
     future = api.fetchEnvPrediction();
+    _autoDetectLocation();
   }
 
   @override
@@ -86,7 +69,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   void _onVirusChanged(String v) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 120), () {
-      setState(() => _query = v.trim());
+      if (mounted) setState(() => _query = v.trim());
     });
   }
 
@@ -98,13 +81,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
     });
 
     try {
-      final input = _proteinCtrl.text.trim();
-      if (input.isEmpty) {
-        setState(() => _error = "Please enter a virus name or protein sequence.");
-        return;
+      final raw = _proteinCtrl.text.trim();
+      if (raw.isEmpty) {
+        throw Exception("Please enter a virus name or protein sequence.");
       }
 
-      final seq = sanitizeProteinInput(input);
+      final bool isLikelyName = raw.contains(' ') || raw.length < 25;
+      final seq = isLikelyName ? raw : sanitizeProteinInput(raw);
+
       final loc = _locationCtrl.text.trim().isEmpty
           ? "Kuala Lumpur"
           : _locationCtrl.text.trim();
@@ -114,11 +98,27 @@ class _InsightsScreenState extends State<InsightsScreen> {
         location: loc,
       );
 
-      setState(() => _result = res);
+      if (mounted) setState(() => _result = res);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString().replaceAll("Exception: ", ""));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _autoDetectLocation() async {
+    // Silent check on init
+    final city = await _locationService.getCurrentCity(requestPermission: false);
+    if (city != null && mounted) {
+      _locationCtrl.text = city;
+    }
+  }
+
+  Future<void> _manualDetectLocation() async {
+    // Explicit check on button press
+    final city = await _locationService.getCurrentCity(requestPermission: true);
+    if (city != null && mounted) {
+      _locationCtrl.text = city;
     }
   }
 
@@ -126,15 +126,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final query = q.trim().toLowerCase();
     if (query.isEmpty) return const Iterable<String>.empty();
 
-    // Prioritize "startsWith" matches, then "contains" matches.
-    final starts = _knownViruses
-        .where((s) => s.toLowerCase().startsWith(query))
-        .toList();
-    final contains = _knownViruses
-        .where((s) =>
-            !s.toLowerCase().startsWith(query) &&
-            s.toLowerCase().contains(query))
-        .toList();
+    final starts = _knownViruses.where((s) => s.toLowerCase().startsWith(query));
+    final contains = _knownViruses.where((s) => 
+        !s.toLowerCase().startsWith(query) && s.toLowerCase().contains(query));
 
     return [...starts, ...contains].take(8);
   }
@@ -151,7 +145,6 @@ class _InsightsScreenState extends State<InsightsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ✅ Compact search + predicted results
           _VirusAutocompleteField(
             controller: _proteinCtrl,
             hintText: "Type a virus (e.g., Flu, RSV, SARS-CoV-2)…",
@@ -168,9 +161,14 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
           TextField(
             controller: _locationCtrl,
-            decoration: const InputDecoration(
-              labelText: "Location (optional)",
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: "Location",
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: 'Detect location',
+                icon: const Icon(Icons.my_location),
+                onPressed: _manualDetectLocation,
+              ),
             ),
           ),
 
@@ -180,8 +178,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
             onPressed: _loading ? null : _predict,
             icon: _loading
                 ? const SizedBox(
-                    width: 18,
-                    height: 18,
+                    width: 18, height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.psychology),
@@ -191,14 +188,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
           const SizedBox(height: 16),
 
           if (_error != null)
-            Card(
-              elevation: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  "Error: $_error",
-                  style: const TextStyle(color: Colors.red),
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.red[700]),
               ),
             ),
 
@@ -220,70 +215,77 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final aqi = features["aqi"];
     final pm25 = features["pm25"];
 
-    return Column(
-      children: [
-        Card(
-          elevation: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Virus similarity",
-                    style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Text(
-                    "Influenza-like probability: ${(p * 100).toStringAsFixed(1)}%"),
-              ],
-            ),
+    return LayoutBuilder(builder: (context, constraints) {
+      const double minCardWidth = 260;
+      const double spacing = 12;
+      final double maxW = constraints.maxWidth;
+
+      int perRow = 1;
+      if (maxW >= (minCardWidth * 3 + spacing * 2)) {
+        perRow = 3;
+      } else if (maxW >= (minCardWidth * 2 + spacing)) {
+        perRow = 2;
+      }
+
+      final double itemWidth = (maxW - spacing * (perRow - 1)) / perRow;
+
+      Widget cardItem(Widget child) => SizedBox(
+            width: itemWidth,
+            child: Card(elevation: 0, child: Padding(padding: const EdgeInsets.all(16), child: child)),
+          );
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              cardItem(Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Virus similarity", style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Text("Influenza-like probability: ${(p * 100).toStringAsFixed(1)}%"),
+                ],
+              )),
+              cardItem(Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Environment (AQICN)", style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Text("AQI: $aqi"),
+                  Text("PM2.5: $pm25"),
+                  const SizedBox(height: 8),
+                  Text("Env multiplier: ${m.toStringAsFixed(2)}"),
+                ],
+              )),
+              cardItem(Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Combined", style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 8),
+                  Text("Overall risk score: ${overall.toStringAsFixed(3)}"),
+                  const SizedBox(height: 8),
+                  Text(
+                    data["explanation"]?.toString() ?? "",
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              )),
+            ],
           ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          elevation: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Environment (AQICN)",
-                    style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Text("AQI: $aqi"),
-                Text("PM2.5: $pm25"),
-                const SizedBox(height: 8),
-                Text("Env multiplier: ${m.toStringAsFixed(2)}"),
-              ],
-            ),
+          const SizedBox(height: 12),
+          TopVirusesCard(
+            data: data['top_viruses'] as List<dynamic>?,
+            onRefresh: _reload,
           ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          elevation: 0,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Combined",
-                    style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Text("Overall risk score: ${overall.toStringAsFixed(3)}"),
-                const SizedBox(height: 8),
-                Text(
-                  data["explanation"]?.toString() ?? "",
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 }
 
-/// A compact Autocomplete field with a custom dropdown.
 class _VirusAutocompleteField extends StatelessWidget {
   final TextEditingController controller;
   final String hintText;
@@ -306,77 +308,55 @@ class _VirusAutocompleteField extends StatelessWidget {
     return Autocomplete<String>(
       optionsBuilder: (_) => optionsBuilder(),
       onSelected: onPicked,
+      // Fixed: Use fieldViewBuilder to control the text field properly
       fieldViewBuilder: (context, textCtrl, focusNode, onFieldSubmitted) {
-        // Use the shared controller so your existing logic stays intact.
-        // Sync Autocomplete’s internal controller with yours.
-        if (textCtrl.text != controller.text) {
-          textCtrl.value = controller.value;
+        
+        // Only sync if empty to avoid fighting the cursor
+        if (textCtrl.text.isEmpty && controller.text.isNotEmpty) {
+           textCtrl.text = controller.text;
         }
 
         return SizedBox(
-          height: 44, // ✅ compact height
+          height: 44,
           child: TextField(
-            controller: controller,
+            controller: textCtrl, // Use Autocomplete's controller here
             focusNode: focusNode,
-            onChanged: onChanged,
+            onChanged: (val) {
+              controller.text = val; // Sync back to parent manually
+              onChanged(val);
+            },
             textInputAction: TextInputAction.search,
             onSubmitted: (_) => onSearch(),
             decoration: InputDecoration(
               hintText: hintText,
               isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
               prefixIcon: const Icon(Icons.search),
-              suffixIcon: controller.text.isEmpty
-                  ? IconButton(
-                      tooltip: "Search",
-                      onPressed: onSearch,
-                      icon: const Icon(Icons.arrow_forward),
-                    )
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: "Clear",
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            controller.clear();
-                            onChanged("");
-                            FocusScope.of(context).requestFocus(focusNode);
-                          },
-                        ),
-                        IconButton(
-                          tooltip: "Search",
-                          icon: const Icon(Icons.arrow_forward),
-                          onPressed: onSearch,
-                        ),
-                      ],
-                    ),
+              suffixIcon: IconButton(
+                tooltip: "Search",
+                icon: const Icon(Icons.arrow_forward),
+                onPressed: onSearch,
+              ),
             ),
           ),
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
-        final opts = options.toList();
-        if (opts.isEmpty) return const SizedBox.shrink();
-
         return Align(
           alignment: Alignment.topLeft,
           child: Material(
             elevation: 6,
             borderRadius: BorderRadius.circular(14),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 260, maxWidth: 520),
+              constraints: const BoxConstraints(maxHeight: 260, maxWidth: 300), // Fixed width constraint
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 shrinkWrap: true,
-                itemCount: opts.length,
+                itemCount: options.length,
                 separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, i) {
-                  final option = opts[i];
+                  final option = options.elementAt(i);
                   return ListTile(
                     dense: true,
                     title: Text(option),

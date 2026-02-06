@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../models/dashboard_data.dart';
 import '../widgets/aqi_gauge_card.dart';
 import '../widgets/risk_badge.dart';
@@ -13,27 +14,86 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   late final ApiService api;
-  late Future<DashboardData> future;
+  final _locationService = LocationService();
+  
+  // State variables instead of a single Future
+  DashboardData? _data;
+  bool _isLoading = true;
+  String? _errorMessage;
+  String? _detectedLocation;
 
   @override
   void initState() {
     super.initState();
-
-    // Configure at runtime:
-    // flutter run -d chrome --dart-define=API_BASE_URL=https://airguardai.onrender.com
     const baseUrl = String.fromEnvironment(
       'API_BASE_URL',
       defaultValue: 'https://airguardai.onrender.com',
     );
-
     api = ApiService(baseUrl);
-    future = _loadData();
+    
+    // 1. Initial Load (Default Location)
+    _loadData(); 
+    
+    // 2. Background Location Refinement
+    _detectLocationAndReload();
   }
 
-  Future<DashboardData> _loadData() async {
-    final latest = await api.fetchLatest();
-    final predict = await api.fetchEnvPrediction();
-    return DashboardData.fromApi(latest, predict);
+  /// Centralized method to fetch data.
+  /// If [city] is null, it uses the currently known _detectedLocation or defaults.
+  Future<void> _loadData({String? city}) async {
+    // Only show loading spinner if we have NO data yet (First load).
+    // If we already have data, we just refresh silently/background.
+    if (_data == null) {
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      final queryCity = city ?? _detectedLocation;
+
+      // CRITICAL FIX: Pass the city to the API
+      // Ensure your ApiService.fetchLatest accepts a named parameter `city`
+      final latest = await api.fetchLatest(city: queryCity);
+      final predict = await api.fetchEnvPrediction(); // Pass city here too if your API supports it
+
+      if (mounted) {
+        setState(() {
+          _data = DashboardData.fromApi(latest, predict);
+          if (city != null) _detectedLocation = city; // Update source of truth
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _detectLocationAndReload() async {
+    // Pass 'false' to fail silently if permission isn't already granted
+    final city = await _locationService.getCurrentCity(requestPermission: false);
+    
+    if (city != null && mounted) {
+      // Logic check: If the API is already showing this city, don't reload.
+      if (_detectedLocation != city) {
+        print("Location refined to: $city"); // Debug log
+        _loadData(city: city);
+      }
+    }
+  }
+
+  void _manualRefresh() async {
+    setState(() => _isLoading = true); // Force spinner on manual refresh
+    
+    // Ask for permission explicitly this time
+    final city = await _locationService.getCurrentCity(requestPermission: true);
+    
+    // Reload with new city (or null, which falls back to existing/default)
+    _loadData(city: city);
   }
 
   @override
@@ -44,58 +104,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh data',
-            onPressed: () {
-              setState(() {
-                future = _loadData();
-              });
-            },
+            onPressed: _manualRefresh,
           ),
         ],
       ),
-      body: FutureBuilder<DashboardData>(
-        future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: _buildBody(),
+    );
+  }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-              ),
-            );
-          }
+  Widget _buildBody() {
+    if (_isLoading && _data == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-          final data = snapshot.data!;
+    if (_errorMessage != null && _data == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text('Error: $_errorMessage', style: const TextStyle(color: Colors.red)),
+        ),
+      );
+    }
 
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              // === AQI METER (ENVIRONMENT ONLY) ===
-              AqiGaugeCard(
-                location: data.location,
-                aqi: data.aqi,
-                updatedAt: DateTime.now(),
-              ),
+    if (_data == null) {
+      return const Center(child: Text("No data available"));
+    }
 
-              const SizedBox(height: 16),
-
-              // === COMBINED SURVEILLANCE INDICATOR ===
-              RiskBadge(
-                risk: data.risk,
-                confidence: data.confidence,
-                explanation:
-                    'Virus similarity is derived from protein sequence analysis. '
-                    'Air quality (AQI / PM2.5) is used only to contextualise '
-                    'environmental susceptibility.',
-              ),
-            ],
-          );
-        },
-      ),
+    // If we are refreshing in the background, _data is still valid here.
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: AqiGaugeCard(
+            // Use the location actually returned by the API data to ensure accuracy
+            location: _data!.location, 
+            aqi: _data!.aqi,
+            updatedAt: DateTime.now(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: RiskBadge(
+            risk: _data!.risk,
+            confidence: _data!.confidence,
+            explanation:
+                'Virus similarity is derived from protein sequence analysis. '
+                'Air quality context provided for: ${_detectedLocation ?? "Default Region"}',
+          ),
+        ),
+      ],
     );
   }
 }

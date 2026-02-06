@@ -26,6 +26,8 @@ class AqiGaugeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double value = aqi.toDouble().clamp(0, 500).toDouble();
+    final media = MediaQuery.sizeOf(context);
+    final bool isPhone = media.shortestSide < 600;
 
     return Card(
       elevation: 0,
@@ -34,27 +36,43 @@ class AqiGaugeCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Responsive sizing based on available width.
-            // For a semicircle gauge, height ~ 0.6 * width feels balanced.
             final double width = constraints.maxWidth;
 
-            // Clamp so it looks good on both phones and wide desktop cards.
             final double gaugeWidth = width.clamp(260.0, 520.0);
-            final double gaugeHeight = (gaugeWidth * 0.62).clamp(170.0, 320.0);
+            final double gaugeHeight =
+                (gaugeWidth * 0.8).clamp(170.0, 380.0);
 
-            // Scale text proportionally so it doesn't look tiny/huge.
-            final double numberSize = (gaugeWidth * 0.16).clamp(34.0, 64.0);
-            final double labelSize = (gaugeWidth * 0.05).clamp(12.0, 16.0);
-            final double categorySize = (gaugeWidth * 0.06).clamp(14.0, 18.0);
+            final double posFactor = isPhone ? 0.62 : 0.48;
+            final double needleLen = isPhone ? 0.52 : 0.65;
+            final double axisLabelOffset = isPhone ? 26 : 22;
+
+            // 🔼 Increased font sizes (bumped for better readability)
+            final double aqiFont = isPhone
+              ? (gaugeWidth * 0.095).clamp(26.0, 36.0)
+              : (gaugeWidth * 0.11).clamp(30.0, 42.0);
+
+            final double catFont = isPhone
+              ? (gaugeWidth * 0.07).clamp(16.0, 22.0)
+              : (gaugeWidth * 0.085).clamp(18.0, 26.0);
+
+            final double axisFont = isPhone ? 12 : 14;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(location, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  location,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontSize: isPhone ? 18 : 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   "Last updated: ${updatedAt.toLocal()}",
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: isPhone ? 13 : 14,
+                      ),
                 ),
                 const SizedBox(height: 12),
 
@@ -66,43 +84,37 @@ class AqiGaugeCard extends StatelessWidget {
                       axes: <RadialAxis>[
                         RadialAxis(
                           minimum: 0,
-                          maximum: 501,
-                          labelOffset: 18,
+                          maximum: 502,
                           interval: 50,
+                          radiusFactor: 0.9,
+                          labelOffset: axisLabelOffset,
                           showTicks: false,
                           showAxisLine: false,
-
-                          // Keep a clean semi-circle vibe
                           startAngle: 180,
                           endAngle: 0,
-
                           axisLabelStyle: GaugeTextStyle(
-                            fontSize: (gaugeWidth * 0.03).clamp(10.0, 12.0),
-                            color: Theme.of(context).textTheme.bodySmall?.color,
+                            fontSize: axisFont,
+                            color: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.color,
                           ),
-
                           ranges: <GaugeRange>[
                             GaugeRange(startValue: 0, endValue: 50, color: Colors.green, startWidth: 14, endWidth: 14),
                             GaugeRange(startValue: 50, endValue: 100, color: Colors.yellow, startWidth: 14, endWidth: 14),
                             GaugeRange(startValue: 100, endValue: 150, color: Colors.orange, startWidth: 14, endWidth: 14),
                             GaugeRange(startValue: 150, endValue: 200, color: Colors.red, startWidth: 14, endWidth: 14),
                             GaugeRange(startValue: 200, endValue: 300, color: Colors.purple, startWidth: 14, endWidth: 14),
-                            GaugeRange(
-                              startValue: 300,
-                              endValue: 500,
-                              color: const Color(0xFF7E0023),
-                              startWidth: 14,
-                              endWidth: 14,
-                            ),
+                            GaugeRange(startValue: 300, endValue: 500, color: const Color(0xFF7E0023), startWidth: 14, endWidth: 14),
                           ],
-
                           pointers: <GaugePointer>[
                             NeedlePointer(
                               value: value,
                               enableAnimation: true,
                               animationDuration: 900,
-                              needleColor: Theme.of(context).colorScheme.primary,
-                              needleLength: 0.65,
+                              needleColor:
+                                  Theme.of(context).colorScheme.primary,
+                              needleLength: needleLen,
                               needleStartWidth: 1.5,
                               needleEndWidth: 6,
                               knobStyle: const KnobStyle(
@@ -111,28 +123,30 @@ class AqiGaugeCard extends StatelessWidget {
                               ),
                             ),
                           ],
-
                           annotations: <GaugeAnnotation>[
                             GaugeAnnotation(
                               angle: 90,
-                              positionFactor: 0.45, // lower = closer to bottom of gauge
+                              positionFactor: posFactor,
                               widget: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
                                     "${aqi.toInt()}",
                                     style: TextStyle(
-                                      fontSize: (gaugeWidth * 0.085).clamp(20.0, 28.0),
-                                      fontWeight: FontWeight.w600,
+                                      fontSize: aqiFont,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
                                     category,
                                     style: TextStyle(
-                                      fontSize: (gaugeWidth * 0.06).clamp(14.0, 18.0),
+                                      fontSize: catFont,
                                       fontWeight: FontWeight.w500,
-                                      color: Theme.of(context).textTheme.bodyMedium?.color,
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.color,
                                     ),
                                   ),
                                 ],
@@ -148,7 +162,9 @@ class AqiGaugeCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   "AQI reflects environmental conditions only. Virus similarity and surveillance risk are evaluated separately.",
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: isPhone ? 13 : 14,
+                      ),
                 ),
               ],
             );

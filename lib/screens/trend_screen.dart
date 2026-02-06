@@ -1,6 +1,6 @@
-// lib/screens/trends_screen.dart
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../models/history_point.dart';
 import '../widgets/line_chart_card.dart';
 import '../utils/trend_insight.dart';
@@ -18,15 +18,13 @@ class _TrendsScreenState extends State<TrendsScreen> {
     defaultValue: 'https://airguardai.onrender.com',
   ));
 
+  final _locationService = LocationService();
+
   int hours = 24;
   late Future<List<HistoryPoint>> future;
 
-  /// true = real-time X axis (recommended)
-  /// false = index-based X axis (even spacing)
+  // Use real-time X axis for better accuracy
   final bool useRealTimeXAxis = true;
-
-  /// Only used when useRealTimeXAxis == false
-  final bool floorLabelsToHourWhenIndexBased = true;
 
   @override
   void initState() {
@@ -40,52 +38,38 @@ class _TrendsScreenState extends State<TrendsScreen> {
     });
   }
 
-  DateTime _floorToHour(DateTime d) => DateTime(d.year, d.month, d.day, d.hour);
-
   Future<List<HistoryPoint>> _fetchAndSort() async {
     try {
       final res = await api.fetchHistory(hours: hours);
+      
       final rawPoints = (res['points'] as List)
           .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // Sort by timestamp (oldest → newest)
       rawPoints.sort((a, b) {
         if (a.ts == null) return -1;
         if (b.ts == null) return 1;
         return a.ts!.compareTo(b.ts!);
       });
 
-      // ✅ ENFORCE WINDOW (past N hours) on the client
-      final now = DateTime.now();
-      final cutoff = now.subtract(Duration(hours: hours));
-
-      final filtered = rawPoints.where((p) {
-        final t = p.ts?.toLocal();
-        if (t == null) return false;
-        return t.isAfter(cutoff);
-      }).toList();
-
-      return filtered;
+      return rawPoints;
     } catch (e) {
-      // ignore: avoid_print
-      print("Error loading trends: $e");
+      debugPrint("Error loading trends: $e");
       rethrow;
     }
   }
 
   bool _useGrid(BuildContext context) {
     final media = MediaQuery.of(context);
-    final isLandscape = media.orientation == Orientation.landscape;
-
-    // On web/desktop, you can also trigger grid even in portrait if wide enough.
-    final isWide = media.size.width >= 900;
-
-    return isLandscape || isWide;
+    return media.orientation == Orientation.landscape || media.size.width >= 900;
   }
 
   @override
   Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    // Tuned aspect ratio to prevent "Bottom Overflowed" in landscape
+    final double gridAspectRatio = media.size.height < 500 ? 1.4 : 1.1;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Trends"),
@@ -104,106 +88,106 @@ class _TrendsScreenState extends State<TrendsScreen> {
           }
 
           final points = snapshot.data ?? [];
-
           if (points.isEmpty) {
             return const Center(child: Text("No data yet. Check back later!"));
           }
 
-          // ✅ Safe debug (after empty check)
-          debugPrint(
-            "hours=$hours -> points=${points.length} "
-            "first=${points.first.ts} last=${points.last.ts}",
-          );
+          // 1. Safe Filtering
+          final validAqiPoints = points.where((p) => p.aqi != null && p.ts != null).toList();
+          final validPm25Points = points.where((p) => p.pm25 != null && p.ts != null).toList();
 
-          // Values (already sorted)
-          final aqiValues = points.map((p) => p.aqi?.toDouble()).toList();
-          final pm25Values = points.map((p) => p.pm25?.toDouble()).toList();
+          if (validAqiPoints.isEmpty && validPm25Points.isEmpty) {
+             return const Center(child: Text("Data available but values are missing/null."));
+          }
 
-          // Dates: convert to local for display/charting
-          final dates = points.map((p) {
-            final ts = p.ts;
-            if (ts == null) return null;
+          final aqiValues = validAqiPoints.map((p) => p.aqi!.toDouble()).toList();
+          final aqiDates = validAqiPoints.map((p) => p.ts!.toLocal()).toList();
 
-            final local = ts.toLocal();
-            if (!useRealTimeXAxis && floorLabelsToHourWhenIndexBased) {
-              return _floorToHour(local);
-            }
-            return local;
-          }).toList();
+          final pm25Values = validPm25Points.map((p) => p.pm25!.toDouble()).toList();
+          final pm25Dates = validPm25Points.map((p) => p.ts!.toLocal()).toList();
 
           final gridMode = _useGrid(context);
 
-          // --- Chart+insight blocks ---
+          // 2. Constraints Setup
+          final constraints = gridMode 
+              ? const BoxConstraints() // Let GridView control height
+              : const BoxConstraints(minHeight: 240); // Force height in list
+
+          // 3. Create Blocks (With Empty Data Safety)
           final aqiBlock = _TrendBlock(
-            chart: LineChartCard(
-              title: "AQI Trend",
-              values: aqiValues,
-              dates: dates,
-              unit: "AQI",
-              useTimeXAxis: useRealTimeXAxis,
+            gridMode: gridMode,
+            chart: ConstrainedBox(
+              constraints: constraints,
+              child: aqiValues.isEmpty 
+                  ? const Center(child: Text("No AQI Data"))
+                  : LineChartCard(
+                      title: "AQI Trend",
+                      values: aqiValues,
+                      dates: aqiDates,
+                      unit: "AQI",
+                      useTimeXAxis: useRealTimeXAxis,
+                    ),
             ),
-            insight: trendInsight(aqiValues, label: "AQI"),
+            // ✅ FIX: Don't call trendInsight on empty list
+            insight: aqiValues.isEmpty 
+                ? "Insufficient data for insight." 
+                : trendInsight(aqiValues, label: "AQI"),
           );
 
           final pm25Block = _TrendBlock(
-            chart: LineChartCard(
-              title: "PM2.5 Trend",
-              values: pm25Values,
-              dates: dates,
-              unit: "µg/m³",
-              useTimeXAxis: useRealTimeXAxis,
+            gridMode: gridMode,
+            chart: ConstrainedBox(
+              constraints: constraints,
+              child: pm25Values.isEmpty
+                  ? const Center(child: Text("No PM2.5 Data"))
+                  : LineChartCard(
+                      title: "PM2.5 Trend",
+                      values: pm25Values,
+                      dates: pm25Dates,
+                      unit: "µg/m³",
+                      useTimeXAxis: useRealTimeXAxis,
+                    ),
             ),
-            insight: trendInsight(pm25Values, label: "PM2.5"),
+            // ✅ FIX: Don't call trendInsight on empty list
+            insight: pm25Values.isEmpty 
+                ? "Insufficient data for insight." 
+                : trendInsight(pm25Values, label: "PM2.5"),
           );
 
+          // 4. Render Layout
           if (!gridMode) {
-            // ===== Portrait / narrow: keep simple ListView =====
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _hoursPicker(),
+                Align(alignment: Alignment.centerLeft, child: _hoursPicker()),
                 const SizedBox(height: 12),
-
                 aqiBlock,
                 const SizedBox(height: 16),
-
                 pm25Block,
                 const SizedBox(height: 24),
-
-                Text(
-                  "Tip: Keep collecting data to see the trend line grow.",
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
               ],
             );
           }
 
-          // ===== Landscape / wide: charts in 2-column grid =====
+          // Grid Layout (Landscape/Wide)
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // top controls
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _hoursPicker(),
-                ),
+                Align(alignment: Alignment.centerLeft, child: _hoursPicker()),
                 const SizedBox(height: 12),
-
-                // grid area
                 Expanded(
                   child: GridView.count(
                     crossAxisCount: 2,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
-                    // Wider-than-tall tiles: fits short landscape heights better
-                    childAspectRatio: 1.35,
-                    children: const [],
+                    childAspectRatio: gridAspectRatio,
+                    children: [aqiBlock, pm25Block],
                   ),
                 ),
               ],
             ),
-          )._withGridChildren([aqiBlock, pm25Block]);
+          );
         },
       ),
     );
@@ -218,6 +202,8 @@ class _TrendsScreenState extends State<TrendsScreen> {
         DropdownButton<int>(
           value: hours,
           items: const [
+            DropdownMenuItem(value: 6, child: Text("6 hours")),
+            DropdownMenuItem(value: 12, child: Text("12 hours")),
             DropdownMenuItem(value: 24, child: Text("24 hours")),
             DropdownMenuItem(value: 72, child: Text("3 days")),
             DropdownMenuItem(value: 168, child: Text("7 days")),
@@ -235,65 +221,40 @@ class _TrendsScreenState extends State<TrendsScreen> {
   }
 }
 
-/// A chart card + its insight text, kept together as a single block.
 class _TrendBlock extends StatelessWidget {
   final Widget chart;
   final String insight;
+  final bool gridMode;
 
   const _TrendBlock({
     required this.chart,
     required this.insight,
+    required this.gridMode,
   });
 
   @override
   Widget build(BuildContext context) {
+    final insightWidget = Text(
+      insight,
+      maxLines: gridMode ? 2 : null,
+      overflow: gridMode ? TextOverflow.ellipsis : TextOverflow.visible,
+      style: Theme.of(context).textTheme.bodyMedium,
+    );
+
+    if (!gridMode) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [chart, const SizedBox(height: 10), insightWidget],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        chart,
-        const SizedBox(height: 10),
-        Text(insight),
+        Expanded(child: chart), 
+        const SizedBox(height: 10), 
+        insightWidget
       ],
-    );
-  }
-}
-
-/// Tiny helper extension so we can keep the GridView code clean.
-extension _GridChildrenHack on Widget {
-  Widget _withGridChildren(List<Widget> children) {
-    // This extension wraps the widget tree and swaps the placeholder GridView
-    // with the real one without duplicating the surrounding layout.
-    if (this is! Padding) return this;
-    final p = this as Padding;
-
-    return Padding(
-      padding: p.padding,
-      child: Builder(
-        builder: (context) {
-          // Rebuild the structure with children injected
-          final col = (p.child as Column);
-          final top = col.children[0];
-          final gap = col.children[1];
-          final expanded = col.children[2] as Expanded;
-          final grid = expanded.child as GridView;
-
-          return Column(
-            children: [
-              top,
-              gap,
-              Expanded(
-                child: GridView.count(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.35,
-                  children: children,
-                ),
-              ),
-            ],
-          );
-        },
-      ),
     );
   }
 }
