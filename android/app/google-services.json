@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "508258349755",
+    "project_id": "airguardai",
+    "storage_bucket": "airguardai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:508258349755:android:37d48211b044b26fc2ef9e",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA08gnAdT5PrfkczO63mC0X0Rpj2cjrcf0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

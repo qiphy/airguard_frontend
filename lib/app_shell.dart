@@ -17,7 +17,7 @@ class _AppShellState extends State<AppShell> {
 
   final screens = const [
     DashboardScreen(),
-    TrendsScreen(),
+    AnalyticsPage(),
     InsightsScreen(),
     //AlertsScreen(),//
     //ImpactScreen(),//

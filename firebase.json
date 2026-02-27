@@ -1,16 +1,1 @@
-{
-  "hosting": {
-    "public": "build/web",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ]
-  }
-}
+{"hosting":{"public":"build/web","ignore":["firebase.json","**/.*","**/node_modules/**"],"rewrites":[{"source":"**","destination":"/index.html"}]},"functions":[{"source":"functions","codebase":"default","disallowLegacyRuntimeConfig":true,"ignore":["venv",".git","firebase-debug.log","firebase-debug.*.log","*.local"],"runtime":"python313"}],"flutter":{"platforms":{"android":{"default":{"projectId":"airguardai","appId":"1:508258349755:android:37d48211b044b26fc2ef9e","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"airguardai","configurations":{"android":"1:508258349755:android:37d48211b044b26fc2ef9e","web":"1:508258349755:web:d9edc88d3b022aeac2ef9e"}}}}}}

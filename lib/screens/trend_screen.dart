@@ -1,260 +1,249 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../services/location_service.dart';
-import '../models/history_point.dart';
-import '../widgets/line_chart_card.dart';
-import '../utils/trend_insight.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
+import 'package:intl/intl.dart';
 
-class TrendsScreen extends StatefulWidget {
-  const TrendsScreen({super.key});
+import '../services/api_service.dart';
+import '../providers/location_provider.dart'; 
+
+class AnalyticsPage extends StatefulWidget {
+  const AnalyticsPage({super.key});
 
   @override
-  State<TrendsScreen> createState() => _TrendsScreenState();
+  State<AnalyticsPage> createState() => _AnalyticsPageState();
 }
 
-class _TrendsScreenState extends State<TrendsScreen> {
-  final api = ApiService(const String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'https://airguardai.onrender.com',
-  ));
+class _AnalyticsPageState extends State<AnalyticsPage> {
+  List<double> _weeklyAqi = [];
+  List<String> _days = [];
+  String _aiTrendAnalysis = "Waiting for data...";
+  String _locationName = "Loading...";
+  String _lastUpdatedStr = "Never";
+  bool _isLoadingData = true;
+  bool _isLoadingAI = true;
 
-  final _locationService = LocationService();
-
-  int hours = 24;
-  late Future<List<HistoryPoint>> future;
-
-  // Use real-time X axis for better accuracy
-  final bool useRealTimeXAxis = true;
+  // Trackers for change detection
+  double? _lastLat;
+  double? _lastLng;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  void _load() {
-    setState(() {
-      future = _fetchAndSort();
+    // 10-second silent polling for current station data
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_lastLat != null && _lastLng != null) {
+        _fetchDataAndAnalyze(
+          lat: _lastLat!,
+          lng: _lastLng!,
+          locationName: _locationName,
+          isSilentRefresh: true, 
+          skipAi: true, 
+        );
+      }
     });
   }
 
-  Future<List<HistoryPoint>> _fetchAndSort() async {
-    try {
-      final res = await api.fetchHistory(hours: hours);
+  @override
+  void dispose() {
+    _refreshTimer?.cancel(); 
+    super.dispose();
+  }
+
+  // --- REINFORCED: Detects location updates from Provider ---
+  void _checkAndHandleLocationChange(LocationProvider provider) {
+    final currentLat = provider.latitude;
+    final currentLng = provider.longitude;
+
+    // Detect if coordinates have actually changed
+    if (currentLat != _lastLat || currentLng != _lastLng) {
+      _lastLat = currentLat;
+      _lastLng = currentLng;
       
-      final rawPoints = (res['points'] as List)
-          .map((e) => HistoryPoint.fromJson(e as Map<String, dynamic>))
-          .toList();
-
-      rawPoints.sort((a, b) {
-        if (a.ts == null) return -1;
-        if (b.ts == null) return 1;
-        return a.ts!.compareTo(b.ts!);
+      // HARD RESET: Clear existing state so user knows a new fetch started
+      Future.microtask(() {
+        if (mounted) {
+          setState(() {
+            _weeklyAqi = [];
+            _isLoadingData = true;
+            _isLoadingAI = true;
+          });
+          _fetchDataAndAnalyze(
+            lat: currentLat,
+            lng: currentLng,
+            locationName: provider.currentLocation.isEmpty ? "Current Location" : provider.currentLocation,
+            isSilentRefresh: false, 
+            skipAi: false,
+          );
+        }
       });
-
-      return rawPoints;
-    } catch (e) {
-      debugPrint("Error loading trends: $e");
-      rethrow;
     }
   }
 
-  bool _useGrid(BuildContext context) {
-    final media = MediaQuery.of(context);
-    return media.orientation == Orientation.landscape || media.size.width >= 900;
+  Future<void> _fetchDataAndAnalyze({
+    required double lat, 
+    required double lng, 
+    required String locationName,
+    bool isSilentRefresh = false,
+    bool skipAi = false,
+  }) async {
+    if (!mounted) return;
+
+    try {
+      // Step 1: Fetch Trend Data
+      final trendData = await ApiService.fetch7DayAQI(lat, lng);
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _locationName = trendData['cityName'] ?? locationName;
+        _weeklyAqi = List<double>.from(trendData['values']);
+        _days = List<String>.from(trendData['days']);
+        _lastUpdatedStr = DateFormat('HH:mm:ss').format(DateTime.now());
+        _isLoadingData = false;
+      });
+
+      if (skipAi || _weeklyAqi.isEmpty) {
+        if (_weeklyAqi.isEmpty) setState(() => _isLoadingAI = false);
+        return;
+      }
+
+      // Step 2: Fetch AI Analysis
+      final prompt = "Analyze these AQI values for $_locationName: ${_weeklyAqi.join(', ')}. Give 3 short tips.";
+      final analysis = await ApiService.getGeminiPrediction(prompt, "Health Analyst");
+      
+      if (mounted) {
+        setState(() {
+          _aiTrendAnalysis = analysis;
+          _isLoadingAI = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingData = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final media = MediaQuery.of(context);
-    // Tuned aspect ratio to prevent "Bottom Overflowed" in landscape
-    final double gridAspectRatio = media.size.height < 500 ? 1.4 : 1.1;
+    // TRIGGER: Watch the provider for changes
+    final provider = context.watch<LocationProvider>();
+    _checkAndHandleLocationChange(provider);
+
+    double maxDataY = _weeklyAqi.isNotEmpty 
+        ? _weeklyAqi.reduce((a, b) => a > b ? a : b) 
+        : 100;
+    double maxY = ((maxDataY / 20).ceil() * 20.0) + 20;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Trends"),
-        actions: [
-          IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-        ],
-      ),
-      body: FutureBuilder<List<HistoryPoint>>(
-        future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text("Error: ${snapshot.error}"));
-          }
-
-          final points = snapshot.data ?? [];
-          if (points.isEmpty) {
-            return const Center(child: Text("No data yet. Check back later!"));
-          }
-
-          // 1. Safe Filtering
-          final validAqiPoints = points.where((p) => p.aqi != null && p.ts != null).toList();
-          final validPm25Points = points.where((p) => p.pm25 != null && p.ts != null).toList();
-
-          if (validAqiPoints.isEmpty && validPm25Points.isEmpty) {
-             return const Center(child: Text("Data available but values are missing/null."));
-          }
-
-          final aqiValues = validAqiPoints.map((p) => p.aqi!.toDouble()).toList();
-          final aqiDates = validAqiPoints.map((p) => p.ts!.toLocal()).toList();
-
-          final pm25Values = validPm25Points.map((p) => p.pm25!.toDouble()).toList();
-          final pm25Dates = validPm25Points.map((p) => p.ts!.toLocal()).toList();
-
-          final gridMode = _useGrid(context);
-
-          // 2. Constraints Setup
-          final constraints = gridMode 
-              ? const BoxConstraints() // Let GridView control height
-              : const BoxConstraints(minHeight: 240); // Force height in list
-
-          // 3. Create Blocks (With Empty Data Safety)
-          final aqiBlock = _TrendBlock(
-            gridMode: gridMode,
-            chart: ConstrainedBox(
-              constraints: constraints,
-              child: aqiValues.isEmpty 
-                  ? const Center(child: Text("No AQI Data"))
-                  : LineChartCard(
-                      title: "AQI Trend",
-                      values: aqiValues,
-                      dates: aqiDates,
-                      unit: "AQI",
-                      useTimeXAxis: useRealTimeXAxis,
-                    ),
-            ),
-            // ✅ FIX: Don't call trendInsight on empty list
-            insight: aqiValues.isEmpty 
-                ? "Insufficient data for insight." 
-                : trendInsight(aqiValues, label: "AQI"),
-          );
-
-          final pm25Block = _TrendBlock(
-            gridMode: gridMode,
-            chart: ConstrainedBox(
-              constraints: constraints,
-              child: pm25Values.isEmpty
-                  ? const Center(child: Text("No PM2.5 Data"))
-                  : LineChartCard(
-                      title: "PM2.5 Trend",
-                      values: pm25Values,
-                      dates: pm25Dates,
-                      unit: "µg/m³",
-                      useTimeXAxis: useRealTimeXAxis,
-                    ),
-            ),
-            // ✅ FIX: Don't call trendInsight on empty list
-            insight: pm25Values.isEmpty 
-                ? "Insufficient data for insight." 
-                : trendInsight(pm25Values, label: "PM2.5"),
-          );
-
-          // 4. Render Layout
-          if (!gridMode) {
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Align(alignment: Alignment.centerLeft, child: _hoursPicker()),
-                const SizedBox(height: 12),
-                aqiBlock,
-                const SizedBox(height: 16),
-                pm25Block,
-                const SizedBox(height: 24),
-              ],
-            );
-          }
-
-          // Grid Layout (Landscape/Wide)
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Align(alignment: Alignment.centerLeft, child: _hoursPicker()),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: GridView.count(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: gridAspectRatio,
-                    children: [aqiBlock, pm25Block],
+      backgroundColor: Colors.grey[50],
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- DEBUG HEADER & LOCATION ---
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Chip(
+                    backgroundColor: Colors.white,
+                    side: BorderSide(color: Colors.grey.shade300),
+                    label: Text(provider.currentLocation), 
+                    avatar: const Icon(Icons.location_on, size: 16, color: Colors.blueAccent)
                   ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Last Update: $_lastUpdatedStr", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    ],
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              const Text("Air Quality Trends", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              
+              // --- CHART SECTION ---
+              Container(
+                height: 260,
+                padding: const EdgeInsets.fromLTRB(8, 24, 24, 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
                 ),
-              ],
-            ),
-          );
-        },
+                child: _isLoadingData 
+                  ? const Center(child: CircularProgressIndicator()) 
+                  : LineChart(
+                      _buildChartData(maxY),
+                      duration: const Duration(milliseconds: 500),
+                    ),
+              ),
+
+              const SizedBox(height: 32),
+              _buildAiCard(),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _hoursPicker() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text("Window: "),
-        const SizedBox(width: 8),
-        DropdownButton<int>(
-          value: hours,
-          items: const [
-            DropdownMenuItem(value: 6, child: Text("6 hours")),
-            DropdownMenuItem(value: 12, child: Text("12 hours")),
-            DropdownMenuItem(value: 24, child: Text("24 hours")),
-            DropdownMenuItem(value: 72, child: Text("3 days")),
-            DropdownMenuItem(value: 168, child: Text("7 days")),
-          ],
-          onChanged: (v) {
-            if (v == null) return;
-            setState(() {
-              hours = v;
-              _load();
-            });
-          },
+  LineChartData _buildChartData(double maxY) {
+    return LineChartData(
+      minY: 0,
+      maxY: maxY,
+      gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.withOpacity(0.05))),
+      titlesData: FlTitlesData(
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: 1,
+            getTitlesWidget: (val, meta) {
+              int i = val.toInt();
+              return (i >= 0 && i < _days.length) 
+                ? Text(_days[i], style: const TextStyle(fontSize: 10, color: Colors.grey))
+                : const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+      borderData: FlBorderData(show: false),
+      lineBarsData: [
+        LineChartBarData(
+          spots: _weeklyAqi.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+          isCurved: true,
+          barWidth: 4,
+          belowBarData: BarAreaData(show: true, color: Colors.blueAccent.withOpacity(0.1)),
         ),
       ],
     );
   }
-}
 
-class _TrendBlock extends StatelessWidget {
-  final Widget chart;
-  final String insight;
-  final bool gridMode;
-
-  const _TrendBlock({
-    required this.chart,
-    required this.insight,
-    required this.gridMode,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final insightWidget = Text(
-      insight,
-      maxLines: gridMode ? 2 : null,
-      overflow: gridMode ? TextOverflow.ellipsis : TextOverflow.visible,
-      style: Theme.of(context).textTheme.bodyMedium,
-    );
-
-    if (!gridMode) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [chart, const SizedBox(height: 10), insightWidget],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: chart), 
-        const SizedBox(height: 10), 
-        insightWidget
-      ],
+  Widget _buildAiCard() {
+    return Card(
+      elevation: 0,
+      color: Colors.blue[50],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.blue.shade100)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [Icon(Icons.auto_awesome, color: Colors.blueAccent), SizedBox(width: 8), Text("AI Recommendations", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))]),
+            const Divider(height: 24),
+            _isLoadingAI ? const Center(child: CircularProgressIndicator()) : MarkdownBody(data: _aiTrendAnalysis),
+          ],
+        ),
+      ),
     );
   }
 }
