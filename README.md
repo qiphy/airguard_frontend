@@ -4,6 +4,10 @@ AirGuard AI: Proactive Health Intelligence & Viral Forecasting
 
 AirGuard AI is an innovative, AI-powered health intelligence platform designed to address real-world environmental challenges. By integrating real-time Air Quality Index (AQI) monitoring with predictive viral forecasting, the application empowers users—particularly those in high-density urban areas—to understand the link between environmental conditions and respiratory health risks.
 
+🔗 Public Access
+
+You can access the live functional prototype here: https://airguardai.web.app/
+
 🚀 Overview
 
 AirGuard AI moves beyond static data by using Google’s technology stack to provide hyper-local risk assessments. The system identifies correlations between air quality (PM2.5) and potential viral outbreaks (such as Influenza or Tuberculosis), providing actionable insights and early warnings to help citizens safeguard their health.
