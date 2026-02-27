@@ -54,4 +54,5 @@ Predictive Mapping: Developing hotspot mapping for the Ministry of Health (KKM) 
 Expansion: Scaling services to major Southeast Asian cities by year-end.
 
 👥 The Team: Duo Core
-Oh Kuan Qi & Ng Jin Heng
+
+Group Members: Oh Kuan Qi & Ng Jin Heng
