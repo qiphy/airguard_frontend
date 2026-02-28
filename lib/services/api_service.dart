@@ -172,7 +172,7 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> fetchLatest({
+Future<Map<String, dynamic>> fetchLatest({
     String? city,
     double? lat,
     double? lng,
@@ -186,37 +186,26 @@ class ApiService {
     final res = await http.get(uri).timeout(_timeout);
 
     if (res.statusCode != 200) throw _httpError('Failed to fetch latest', res);
-
-    final data = jsonDecode(res.body);
-    return (data is Map)
-        ? data.map((k, v) => MapEntry(k.toString(), v))
-        : <String, dynamic>{};
+    return Map<String, dynamic>.from(jsonDecode(res.body));
   }
 
   Future<Map<String, dynamic>> fetchEnvPrediction({String? city}) async {
-    final res = await http
-        .post(
-          Uri.parse('$baseUrl/predict_env'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(city != null ? {'location': city} : {}),
-        )
-        .timeout(_timeout);
+    final res = await http.post(
+      Uri.parse('$baseUrl/predict_env'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(city != null ? {'location': city} : {}),
+    ).timeout(_timeout);
 
     if (res.statusCode != 200) throw _httpError('Failed env prediction', res);
-
-    final data = jsonDecode(res.body);
-    return (data is Map)
-        ? data.map((k, v) => MapEntry(k.toString(), v))
-        : <String, dynamic>{};
+    return Map<String, dynamic>.from(jsonDecode(res.body));
   }
 
   // ---------------------------
   // Gemini AI (Static)
   // ---------------------------
-
-  static Future<String> getGeminiPrediction(String prompt, String systemContext) async {
+  
+static Future<String> getGeminiPrediction(String prompt, String systemContext) async {
     final url = Uri.parse('$baseUrl/gemini/chat');
-
     try {
       final res = await http.post(
         url,
@@ -231,6 +220,7 @@ class ApiService {
         final data = jsonDecode(res.body);
         return data['text'] ?? "Analysis failed.";
       }
+      // Use the static helper to avoid instance access error
       throw _staticHttpError('Gemini Proxy Error', res);
     } catch (e) {
       return "AI connection error: $e";
