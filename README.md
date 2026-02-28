@@ -12,42 +12,40 @@ You can access the live functional prototype here: https://airguardai.web.app/
 
 To run the AirGuard AI Flutter application locally, follow these steps:
 
-Prerequisites
-Flutter SDK: Install Flutter (Stable channel).
+**Prerequisites**
 
-Dart SDK: Included with the Flutter bundle.
+* **Flutter SDK**: [Install Flutter](https://docs.flutter.dev/get-started/install) (Stable channel).
+* **Dart SDK**: Included with the Flutter bundle.
+* **IDE**: VS Code or Android Studio with Flutter plugins.
 
-Android Studio / Xcode: For mobile emulation or physical device testing.
+**Local Setup**
 
-Google Chrome: For running the web version of the prototype.
-
-Local Setup
-Clone the Repository:
-
-Bash
+1. **Clone the Repository**:
+```bash
 git clone https://github.com/qiphy/airguardai_frontend
 cd airguardai_frontend
-Install Dependencies:
-Fetch all required packages including Flutter's material and Google-related plugins:
-+2
 
-Bash
+```
+
+2. **Install Dependencies**:
+```bash
 flutter pub get
-Environment Configuration:
-Create a .env file in the root directory to store your Backend URL (hosted on Render):
 
-Code snippet
-BACKEND_URL=https://your-render-backend-url.com
-Run the Application:
+```
 
-For Web:
-
-Bash
+3. **Run the Application**:
+* **For Web**:
+```bash
 flutter run -d chrome
-For Android/iOS:
 
-Bash
+```
+
+
+* **For Mobile**:
+```bash
 flutter run
+
+```
 
 🚀 Overview
 
