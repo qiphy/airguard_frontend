@@ -88,6 +88,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     required String locationName,
     bool isSilentRefresh = false,
     bool skipAi = false,
+    final String baseUrl = "https://airguardai.onrender.com",
   }) async {
     if (!mounted) return;
 

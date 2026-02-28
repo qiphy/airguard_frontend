@@ -15,18 +15,16 @@ import '../widgets/aqi_range_legend.dart';
 // DYNAMIC HEALTH SERVICE: Malaysia Open Data + AI Rationale
 // ------------------------------------------------------------------
 class KKMService {
-  static const String _geminiKey = "AIzaSyCE39GkPuUSO5PPoGOHrUAkUdmsxFoMvQA";
+  // Use your Render URL here
+  static const String baseUrl = "https://airguardai.onrender.com";
+  static const Duration _timeout = Duration(seconds: 30);
 
   Future<List<Map<String, dynamic>>> getEnvironmentalHealthRisks(
       String location, num aqi, double temp, double humidity) async {
     try {
       final now = DateTime.now();
       final months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      final currentMonth = months[now.month - 1];
-      final currentYear = now.year;
-      final currentDate = "$currentMonth $currentYear";
-
-      final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: _geminiKey);
+      final currentDate = "${months[now.month - 1]} ${now.year}";
       
       final prompt = """
         You are an AI Environmental Health Expert. 
@@ -51,15 +49,27 @@ class KKMService {
           {"name": "Specific Disease/Condition Name", "risk": "High/Moderate/Low", "desc": "A concise summary of the risk.", "rationale": "Scientific explanation linking this disease to the AQI, Temp, Humidity, or season.", "suggestions": "Recommending what the user can and cannot do based on this condition."}
         ]
       """;
+      final response = await http.post(
+        Uri.parse('$baseUrl/gemini/chat'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'prompt': prompt,
+          'system_context': "You are an expert medical and environmental analyst. Respond ONLY with a JSON array."
+        }),
+      ).timeout(_timeout);
 
-      final content = [Content.text(prompt)];
-      final aiResponse = await model.generateContent(content);
-      final text = aiResponse.text ?? "[]";
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final String text = data['text'] ?? "[]";
+        
+        // Extract JSON array from the AI text response
+        final match = RegExp(r'\[[\s\S]*\]').firstMatch(text);
+        final cleanJson = match != null ? match.group(0)! : "[]";
+        
+        return List<Map<String, dynamic>>.from(jsonDecode(cleanJson));
+      }
       
-      final match = RegExp(r'\[[\s\S]*\]').firstMatch(text);
-      final cleanJson = match != null ? match.group(0)! : "[]";
-      
-      return List<Map<String, dynamic>>.from(jsonDecode(cleanJson));
+      throw Exception("Backend error: ${response.statusCode}");
     } catch (e) {
       return [
         {"name": "Asthma Exacerbation", "risk": aqi > 100 ? "High" : "Moderate", "desc": "Elevated risk of asthma attacks and airway inflammation.", "rationale": "High AQI levels introduce particulate matter that triggers bronchospasms in sensitive individuals.", "suggestions": "Stay at home to prevent inhaling air from the haze."},
@@ -82,6 +92,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _locationService = LocationService();
   final _kkmService = KKMService();
   final ApiService api = ApiService('https://airguardai.onrender.com');
+  final String baseUrl = "https://airguardai.onrender.com";
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -579,6 +590,7 @@ class LocationSearchDelegate extends SearchDelegate<String> {
   final ApiService api;
   final LocationProvider provider;
   final void Function(String sel, String name, double? lat, double? lon) onSelected;
+  final String baseUrl = "https://airguardai.onrender.com";
 
   LocationSearchDelegate({required this.api, required this.provider, required this.onSelected});
 

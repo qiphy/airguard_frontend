@@ -1,37 +1,38 @@
-// lib/services/api_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:google_generative_ai/google_generative_ai.dart';
 
 class ApiService {
-  final String baseUrl;
-  
-  // ⚠️ Replace with your actual secure key handling in production
-  static const String _aqiToken = 'f3b08bd8268e7c6974d013f3567e08a021a84e3d';
-  static const String _geminiKey = 'AIzaSyDGF-x6ObAoaKYOnFYR77cwhTeO1UejeXA'; 
+  static const String baseUrl = "https://airguardai.onrender.com";
   static double? lastFetchedTemp;
   static double? lastFetchedHumidity;
-
   static const Duration _timeout = Duration(seconds: 20);
 
-  ApiService(this.baseUrl);
+  final String instanceBaseUrl;
+  ApiService(this.instanceBaseUrl);
 
   // ---------------------------
-  // Helpers
+  // Static Helpers (Required for static methods)
   // ---------------------------
 
-  String _safeBody(http.Response res) {
+  static String _staticSafeBody(http.Response res) {
     final body = res.body;
     if (body.isEmpty) return '';
     return body.length > 800 ? body.substring(0, 800) : body;
   }
 
-  Exception _httpError(String label, http.Response res) {
-    return Exception('$label: ${res.statusCode} ${_safeBody(res)}');
+  static Exception _staticHttpError(String label, http.Response res) {
+    return Exception('$label: ${res.statusCode} ${_staticSafeBody(res)}');
   }
 
   // ---------------------------
-  // AQICN Search
+  // Instance Helpers (Kept for non-static methods)
+  // ---------------------------
+
+  String _safeBody(http.Response res) => _staticSafeBody(res);
+  Exception _httpError(String label, http.Response res) => _staticHttpError(label, res);
+
+  // ---------------------------
+  // AQICN Search (Instance Method)
   // ---------------------------
 
   Future<List<Map<String, dynamic>>> searchStations(String keyword) async {
@@ -70,13 +71,11 @@ class ApiService {
   }
 
   // ---------------------------
-  // WAQI Data Fetching (FIXED)
+  // WAQI Data Fetching (Static)
   // ---------------------------
 
-  /// Fetches detailed data for a station/geo-location and flattens
-  /// nested `iaqi` (temp/humidity) into the top-level map.
   static Future<Map<String, dynamic>> fetchWAQIData(String path) async {
-    final url = "https://api.waqi.info/feed/$path/?token=$_aqiToken";
+    final url = "$baseUrl/waqi/feed?path=${Uri.encodeComponent(path)}";
     
     try {
       final response = await http.get(Uri.parse(url)).timeout(_timeout);
@@ -88,7 +87,6 @@ class ApiService {
           final data = decoded['data'];
           final Map<String, dynamic> result = Map<String, dynamic>.from(data);
 
-          // 1. Extract Coordinates
           if (data['city'] != null && data['city']['geo'] != null) {
             List<dynamic> geo = data['city']['geo'];
             if (geo.length >= 2) {
@@ -97,7 +95,6 @@ class ApiService {
             }
           }
 
-          // 2. Extract Temp & Humidity from 'iaqi' (Flattening)
           if (data['iaqi'] != null) {
             final iaqi = data['iaqi'];
             if (iaqi['t'] != null) {
@@ -109,28 +106,24 @@ class ApiService {
               lastFetchedHumidity = result['humidity'];
             }
           }
-
-          // Ensure keys exist even if null (defaults)
-          result.putIfAbsent('temp', () => 0.0);
-          result.putIfAbsent('humidity', () => 0.0);
-          
           return result; 
         }
       }
-      throw Exception("Failed to load WAQI data: Status not ok");
+      throw Exception("Failed to load WAQI data via Proxy");
     } catch (e) {
       rethrow;
     }
   }
 
-  /// Fetches the last 7 days of AQI history from the forecast array
+  // ---------------------------
+  // WAQI 7-Day History (Static)
+  // ---------------------------
+
   static Future<Map<String, dynamic>> fetch7DayAQI(double lat, double lng) async {
-    final cleanLat = lat.toStringAsFixed(4);
-    final cleanLng = lng.toStringAsFixed(4);
-    
-    final url = Uri.parse(
-      'https://api.waqi.info/feed/geo:$cleanLat;$cleanLng/?token=$_aqiToken'
-    );
+    final url = Uri.parse('$baseUrl/waqi/history').replace(queryParameters: {
+      'lat': lat.toString(),
+      'lng': lng.toString(),
+    });
     
     try {
       final response = await http.get(url).timeout(_timeout);
@@ -145,15 +138,12 @@ class ApiService {
             final List forecast = data['data']['forecast']['daily']['pm25'];
             final String todayStr = DateTime.now().toIso8601String().split('T')[0];
             
-            // 1. Filter: Get only dates <= Today (History + Today)
             final pastAndToday = forecast.where((item) {
               return (item['day'] as String).compareTo(todayStr) <= 0;
             }).toList();
 
-            // 2. Sort: Ensure they are in ascending order
             pastAndToday.sort((a, b) => a['day'].compareTo(b['day']));
 
-            // 3. Slice: Take the last 7 entries
             final int count = pastAndToday.length;
             final int start = count > 7 ? count - 7 : 0;
             final List<dynamic> last7Days = pastAndToday.sublist(start);
@@ -163,10 +153,8 @@ class ApiService {
 
             for (var item in last7Days) {
               aqiValues.add((item['avg'] as num).toDouble());
-              
               String dateStr = item['day']; 
               final parts = dateStr.split('-');
-              // Format: "MM/DD"
               days.add(parts.length == 3 ? '${parts[1]}/${parts[2]}' : dateStr);
             }
             
@@ -180,14 +168,9 @@ class ApiService {
       }
       return {'values': <double>[], 'days': <String>[], 'cityName': 'No Data'};
     } catch (e) {
-      // Return empty structure on fail to prevent UI crash
       return {'values': <double>[], 'days': <String>[], 'cityName': 'Error'};
     }
   }
-
-  // ---------------------------
-  // Backend Endpoints
-  // ---------------------------
 
   Future<Map<String, dynamic>> fetchLatest({
     String? city,
@@ -228,74 +211,29 @@ class ApiService {
   }
 
   // ---------------------------
-  // Virus & NCBI Tools
+  // Gemini AI (Static)
   // ---------------------------
 
-  Future<Map<String, dynamic>> predictVirusByName({
-    required String location,
-    required String virusName,
-  }) async {
-    final res = await http
-        .post(
-          Uri.parse('$baseUrl/predict'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'virus_name': virusName,
-            'location': location,
-          }),
-        )
-        .timeout(_timeout);
+  static Future<String> getGeminiPrediction(String prompt, String systemContext) async {
+    final url = Uri.parse('$baseUrl/gemini/chat');
 
-    if (res.statusCode != 200) throw _httpError('Failed virus prediction', res);
-
-    final data = jsonDecode(res.body);
-    return (data is Map)
-        ? data.map((k, v) => MapEntry(k.toString(), v))
-        : <String, dynamic>{};
-  }
-
-  /// Checks NCBI database for virus citations in a location
-  static Future<int> checkVirusInLocation(String virus, String location) async {
-    // FIX: Correct string interpolation for virus name
-    final query = '${virus}[Organism] AND ${location}[All Fields]';
-    final term = Uri.encodeComponent(query);
-    
-    // Using AllOrigins proxy to bypass potential CORS in web apps, 
-    // or direct NCBI if backend permits.
-    final ncbiUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=nuccore&term=$term&retmode=json';
-    final proxyUrl = Uri.parse('https://api.allorigins.win/raw?url=${Uri.encodeComponent(ncbiUrl)}');
-    
     try {
-      final response = await http.get(proxyUrl).timeout(_timeout);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['esearchresult'] != null && data['esearchresult']['count'] != null) {
-          return int.parse(data['esearchresult']['count']);
-        }
+      final res = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'prompt': prompt,
+          'system_context': systemContext,
+        }),
+      ).timeout(_timeout);
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        return data['text'] ?? "Analysis failed.";
       }
-    } catch (e) { 
-      print("NCBI Error: $e"); 
-    }
-    return 0;
-  }
-
-  // ---------------------------
-  // Gemini AI
-  // ---------------------------
-
-  static Future<String> getGeminiPrediction(
-    String prompt, String systemContext,
-  ) async {
-    final model = GenerativeModel(
-      model: 'gemini-2.5-flash', 
-      apiKey: _geminiKey,
-    );
-
-    try {
-      final response = await model.generateContent([Content.text(prompt)]);
-      return response.text ?? "Analysis failed to generate.";
+      throw _staticHttpError('Gemini Proxy Error', res);
     } catch (e) {
-      throw Exception("Gemini API Error: $e");
+      return "AI connection error: $e";
     }
   }
 }
