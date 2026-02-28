@@ -55,6 +55,9 @@ flutter run
 
 ```
 
+⚙️ Backend Documentation
+For detailed information on API endpoints, Google AI integration, and server setup, please refer to the Backend Repository (https://github.com/qiphy/airguardai_backend).
+
 
 🚀 Overview
 
