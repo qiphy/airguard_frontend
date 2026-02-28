@@ -1,4 +1,4 @@
-# AirGuard AI
+# AirGuard AI Frontend
 
 AirGuard AI: Proactive Health Intelligence & Viral Forecasting
 
@@ -7,6 +7,47 @@ AirGuard AI is an innovative, AI-powered health intelligence platform designed t
 🔗 Public Access
 
 You can access the live functional prototype here: https://airguardai.web.app/
+
+🛠️ Installation & Setup
+
+To run the AirGuard AI Flutter application locally, follow these steps:
+
+Prerequisites
+Flutter SDK: Install Flutter (Stable channel).
+
+Dart SDK: Included with the Flutter bundle.
+
+Android Studio / Xcode: For mobile emulation or physical device testing.
+
+Google Chrome: For running the web version of the prototype.
+
+Local Setup
+Clone the Repository:
+
+Bash
+git clone https://github.com/qiphy/airguardai_frontend
+cd airguardai_frontend
+Install Dependencies:
+Fetch all required packages including Flutter's material and Google-related plugins:
++2
+
+Bash
+flutter pub get
+Environment Configuration:
+Create a .env file in the root directory to store your Backend URL (hosted on Render):
+
+Code snippet
+BACKEND_URL=https://your-render-backend-url.com
+Run the Application:
+
+For Web:
+
+Bash
+flutter run -d chrome
+For Android/iOS:
+
+Bash
+flutter run
 
 🚀 Overview
 
@@ -50,9 +91,9 @@ Final Indicator: Combines these factors into a surveillance probability for airb
 
 SDG 3 (Good Health & Well-being): Strengthening early warning systems for national health risks.
 
-SDG 11 (Sustainable Cities & Communities): Reducing environmental impacts through smart city air quality monitoring.
-
 SDG 10 (Reduced Inequalities): Providing free, hyper-local AI health insights to ensure health protection access for all income groups, including the B40.
+
+SDG 11 (Sustainable Cities & Communities): Reducing environmental impacts through smart city air quality monitoring.
 
 🔮 2026 Roadmap
 
